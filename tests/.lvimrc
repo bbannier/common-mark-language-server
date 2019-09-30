@@ -1,0 +1,7 @@
+au User lsp_setup call lsp#register_server({
+            \ 'name': 'common-mark',
+            \ 'cmd': {server_info->['cargo', 'run']},
+            \ 'whitelist': ['markdown'],
+            \ })
+
+autocmd FileType typescript setlocal omnifunc=lsp#complete
