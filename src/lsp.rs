@@ -3,10 +3,12 @@ use {
     log::info,
     lsp_server::{Connection, Message, RequestId, Response},
     lsp_types::{
-        notification::{DidChangeTextDocument, DidOpenTextDocument},
-        request::{Completion, HoverRequest},
-        CompletionItem, Hover, HoverContents, InitializeParams, MarkedString, ServerCapabilities,
-        TextDocumentPositionParams,
+        notification::{DidChangeTextDocument, DidOpenTextDocument, Notification},
+        request::{Completion, HoverRequest, Request},
+        CompletionItem, CompletionOptions, CompletionParams, DidChangeTextDocumentParams,
+        DidOpenTextDocumentParams, Hover, HoverContents, InitializeParams, MarkedString,
+        ServerCapabilities, TextDocumentPositionParams, TextDocumentSyncCapability,
+        TextDocumentSyncKind,
     },
     pulldown_cmark::{Event, Tag},
     std::{
@@ -20,7 +22,7 @@ use {
 
 fn request_cast<R>(req: lsp_server::Request) -> Result<(RequestId, R::Params), lsp_server::Request>
 where
-    R: lsp_types::request::Request,
+    R: Request,
     R::Params: serde::de::DeserializeOwned,
 {
     req.extract(R::METHOD)
@@ -30,7 +32,7 @@ fn notification_cast<N>(
     not: lsp_server::Notification,
 ) -> Result<N::Params, lsp_server::Notification>
 where
-    N: lsp_types::notification::Notification,
+    N: Notification,
     N::Params: serde::de::DeserializeOwned,
 {
     not.extract(N::METHOD)
@@ -45,10 +47,8 @@ pub struct Server {
 
 fn server_capabilities() -> ServerCapabilities {
     ServerCapabilities {
-        text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Kind(
-            lsp_types::TextDocumentSyncKind::Full,
-        )),
-        completion_provider: Some(lsp_types::CompletionOptions {
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::Full)),
+        completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec!["](".into()]),
             ..Default::default()
         }),
@@ -171,7 +171,7 @@ impl Server {
     fn handle_completion(
         &self,
         id: lsp_server::RequestId,
-        params: lsp_types::CompletionParams,
+        params: CompletionParams,
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
         // Do a simple check whether we are actually completing a link. We only check whether the
         // character before the completion position is a literal `](`.
@@ -249,7 +249,7 @@ impl Server {
 
     fn handle_did_open_text_document(
         &mut self,
-        params: lsp_types::DidOpenTextDocumentParams,
+        params: DidOpenTextDocumentParams,
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
@@ -259,7 +259,7 @@ impl Server {
 
     fn handle_did_change_text_document(
         &mut self,
-        mut params: lsp_types::DidChangeTextDocumentParams,
+        mut params: DidChangeTextDocumentParams,
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
         let uri = params.text_document.uri;
         let text = params
