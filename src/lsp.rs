@@ -6,6 +6,7 @@ use {
         notification::{DidChangeTextDocument, DidOpenTextDocument},
         request::{Completion, HoverRequest},
         Hover, HoverContents, InitializeParams, MarkedString, ServerCapabilities,
+        TextDocumentPositionParams,
     },
     pulldown_cmark::{Event, Tag},
     std::{collections::HashMap, convert::TryFrom, error::Error, path::Path},
@@ -131,7 +132,7 @@ impl Server {
     fn handle_hover(
         &self,
         id: lsp_server::RequestId,
-        params: lsp_types::TextDocumentPositionParams,
+        params: TextDocumentPositionParams,
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
         info!("got hover request #{}: {:?}", id, params);
         let uri = params.text_document.uri;
@@ -395,10 +396,11 @@ mod tests {
         lsp_types::{
             notification::{Exit, Initialized, Notification},
             request::{Initialize, Request, Shutdown},
-            ClientCapabilities, InitializedParams,
+            ClientCapabilities, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
+            HoverContents, InitializedParams, MarkedString, Position, Range,
+            TextDocumentIdentifier, TextDocumentItem, VersionedTextDocumentIdentifier,
         },
-        serde::Serialize,
-        serde_json::Value,
+        serde::{Deserialize, Serialize},
         std::cell::Cell,
     };
 
@@ -441,10 +443,11 @@ mod tests {
             server
         }
 
-        fn send_request<R>(&self, params: R::Params) -> Value
+        fn send_request<R>(&self, params: R::Params) -> R::Result
         where
             R: Request,
             R::Params: Serialize,
+            for<'de> <R as Request>::Result: Deserialize<'de>,
         {
             let id = self.req_id.get();
             self.req_id.set(id + 1);
@@ -458,12 +461,14 @@ mod tests {
                 )))
                 .unwrap();
 
-            match self.client.receiver.recv().unwrap() {
+            let response = match self.client.receiver.recv().unwrap() {
                 lsp_server::Message::Response(response) => response,
                 _ => panic!(),
             }
             .result
-            .unwrap()
+            .unwrap();
+
+            serde_json::from_value(response).unwrap()
         }
 
         fn send_notification<N>(&self, params: N::Params)
@@ -484,5 +489,76 @@ mod tests {
             self.send_request::<Shutdown>(());
             self.send_notification::<Exit>(());
         }
+    }
+
+    // This test checks hover handling, and as side effects also the loading of docs via
+    // `DidOpenTextDocument` and modification via `DidChangeTextDocument` notifications.
+    #[test]
+    fn handle_hover() {
+        let server = TestServer::new();
+
+        let uri = Url::from_file_path("/foo/bar.md").unwrap();
+
+        // Prime the server with a document with a heading.
+        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                uri.clone(),
+                "markdown".into(),
+                1,
+                "# heading".into(),
+            ),
+        });
+
+        assert_eq!(
+            server.send_request::<HoverRequest>(TextDocumentPositionParams::new(
+                TextDocumentIdentifier { uri: uri.clone() },
+                Position::new(0, 0)
+            ),),
+            Some(Hover {
+                contents: HoverContents::Array(vec![MarkedString::from_markdown(
+                    "Heading (level: 1)\nanchor: heading".to_string()
+                )]),
+                range: Some(Range::new(Position::new(0, 0), Position::new(0, 9))),
+            }),
+            "The first character should match a heading"
+        );
+
+        assert_eq!(
+            server.send_request::<HoverRequest>(TextDocumentPositionParams::new(
+                TextDocumentIdentifier { uri: uri.clone() },
+                Position::new(0, 2)
+            ),),
+            Some(Hover {
+                contents: HoverContents::Array(vec![MarkedString::from_markdown(
+                    "Text".to_string()
+                )]),
+                range: Some(Range::new(Position::new(0, 2), Position::new(0, 9))),
+            }),
+            "The third character should match text"
+        );
+
+        // Change the document to contain inline code.
+        server.send_notification::<DidChangeTextDocument>(DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier::new(uri.clone(), 2),
+            content_changes: vec![lsp_types::TextDocumentContentChangeEvent {
+                text: "`int main()`".into(),
+                range: None,
+                range_length: None,
+            }],
+        });
+
+        assert_eq!(
+            server.send_request::<HoverRequest>(TextDocumentPositionParams::new(
+                TextDocumentIdentifier { uri: uri.clone() },
+                Position::new(0, 3)
+            ),),
+            Some(Hover {
+                contents: HoverContents::Array(vec![MarkedString::from_markdown(
+                    "Inline code".to_string()
+                )]),
+                range: Some(Range::new(Position::new(0, 0), Position::new(0, 12))),
+            }),
+            "The fourth character should match inline code"
+        );
     }
 }
