@@ -9,7 +9,12 @@ use {
         TextDocumentPositionParams,
     },
     pulldown_cmark::{Event, Tag},
-    std::{collections::HashMap, convert::TryFrom, error::Error, path::Path},
+    std::{
+        collections::HashMap,
+        convert::{TryFrom, TryInto},
+        error::Error,
+        path::Path,
+    },
     url::Url,
 };
 
@@ -157,14 +162,9 @@ impl Server {
             range: Some(node.range),
         });
 
-        let result = serde_json::to_value(&result)?;
-        let resp = Response {
-            id,
-            result: Some(result),
-            error: None,
-        };
-        self.connection.sender.send(Message::Response(resp))?;
-
+        self.connection
+            .sender
+            .send(Message::Response(Response::new_ok(id, result)))?;
         Ok(())
     }
 
@@ -173,6 +173,32 @@ impl Server {
         id: lsp_server::RequestId,
         params: lsp_types::CompletionParams,
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
+        // Do a simple check whether we are actually completing a link. We only check whether the
+        // character before the completion position is a literal `](`.
+        let good_position = match self
+            .documents
+            .get(&params.text_document_position.text_document.uri)
+        {
+            None => false, // Document unknown.
+            Some(document) => {
+                let position = &params.text_document_position.position;
+                let character: usize = position.character.try_into()?;
+                character >= 2
+                    && document.lines().nth(position.line.try_into()?).unwrap()
+                        [character - 2..character]
+                        == *"]("
+            }
+        };
+        if !good_position {
+            self.connection
+                .sender
+                .send(Message::Response(Response::new_ok(
+                    id.clone(),
+                    Vec::<CompletionItem>::new(),
+                )))?;
+            return Ok(());
+        }
+
         // For now just complete anchors.
         let items = self
             .documents
@@ -212,20 +238,12 @@ impl Server {
                 }
             })
             .flatten()
-            .map(|(label, detail)| CompletionItem {
-                label,
-                detail: Some(detail.into()),
-                ..Default::default()
-            })
+            .map(|(label, detail)| CompletionItem::new_simple(label, detail.into()))
             .collect::<Vec<CompletionItem>>();
 
-        let resp = Response {
-            id,
-            result: Some(serde_json::to_value(items)?),
-            error: None,
-        };
-        self.connection.sender.send(Message::Response(resp))?;
-
+        self.connection
+            .sender
+            .send(Message::Response(Response::new_ok(id, items)))?;
         Ok(())
     }
 
@@ -584,7 +602,7 @@ mod tests {
             server.send_request::<Completion>(CompletionParams {
                 text_document_position: TextDocumentPositionParams::new(
                     TextDocumentIdentifier::new(uri.clone()),
-                    Position::new(1, 12),
+                    Position::new(2, 12),
                 ),
                 context: None,
             }),
@@ -592,20 +610,31 @@ mod tests {
                 "#heading".into(),
                 "# heading\n".into()
             )])),
-            "Completion at heading should not complete anything"
+            "Completion at reference should complete heading"
         );
 
-        // // FIXME(bbannier): Make this test pass
-        // assert_eq!(
-        //     server.send_request::<Completion>(CompletionParams {
-        //         text_document_position: TextDocumentPositionParams::new(
-        //             TextDocumentIdentifier::new(uri.clone()),
-        //             Position::new(0, 0),
-        //         ),
-        //         context: None,
-        //     }),
-        //     None,
-        //     "Completion at heading should not complete anything"
-        // );
+        assert_eq!(
+            server.send_request::<Completion>(CompletionParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(uri.clone()),
+                    Position::new(2, 2),
+                ),
+                context: None,
+            }),
+            Some(CompletionResponse::from(vec![])),
+            "Completion in the middle of reference should not complete anything",
+        );
+
+        assert_eq!(
+            server.send_request::<Completion>(CompletionParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(uri.clone()),
+                    Position::new(1, 0),
+                ),
+                context: None,
+            }),
+            Some(CompletionResponse::from(vec![])),
+            "Completion at heading should not complete anything"
+        );
     }
 }
