@@ -233,10 +233,16 @@ pub struct Query<'a> {
 }
 
 impl<'a> Query<'a> {
-    /// Find the shortest interval overlapping the given position.
-    pub fn at(&self, position: &Position) -> Option<&Node> {
-        let start = to_offset(position, &self.linebreaks)?;
-        let end = to_offset(&position, &self.linebreaks)? + 1;
+    /// Get all nodes overlapping `position`.
+    pub fn at(&self, position: &Position) -> Vec<&Node> {
+        let start = match to_offset(position, &self.linebreaks) {
+            Some(offset) => offset,
+            _ => return vec![],
+        };
+        let end = 1 + match to_offset(&position, &self.linebreaks) {
+            Some(offset) => offset,
+            _ => return vec![],
+        };
 
         self.tree
             .query(start..end)
@@ -246,7 +252,7 @@ impl<'a> Query<'a> {
                 Event::End(_) => false,
                 _ => true,
             })
-            .min_by(|x, y| x.offsets.len().cmp(&y.offsets.len()))
+            .collect()
     }
 
     pub fn nodes(&self) -> &AstNodes<'a> {
@@ -285,12 +291,20 @@ fn test_query() {
 
     assert_eq!(
         ast.at(&Position::new(0, 0)),
-        Some(&Node {
-            data: Event::Text(CowStr::Borrowed("asdasad sdaasa aasd asdasdasdada")),
-            range: Range::new(Position::new(0, 0), Position::new(0, 32)),
-            offsets: 0..32,
-            anchor: None,
-        }),
+        vec![
+            &Node {
+                data: Event::Text(CowStr::Borrowed("asdasad sdaasa aasd asdasdasdada")),
+                range: Range::new(Position::new(0, 0), Position::new(0, 32)),
+                offsets: 0..32,
+                anchor: None
+            },
+            &Node {
+                data: Event::Start(Paragraph),
+                range: Range::new(Position::new(0, 0), Position::new(0, 32)),
+                offsets: 0..32,
+                anchor: None
+            }
+        ]
     );
 }
 

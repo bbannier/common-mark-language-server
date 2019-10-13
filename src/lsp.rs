@@ -141,9 +141,14 @@ impl Server {
             }
         };
 
+        // We select the node with the shortest range overlapping the range.
         let ast = ast::Query::try_from(contents.as_str())?;
+        let nodes = ast.at(&params.position);
+        let node = nodes
+            .iter()
+            .min_by(|x, y| x.offsets.len().cmp(&y.offsets.len()));
 
-        let result = ast.at(&params.position).map(|node| Hover {
+        let result = node.map(|node| Hover {
             // TODO(bbannier): Maybe just introduce a `Into<MarkedString>` for the data.
             contents: HoverContents::Array(vec![MarkedString::String(pretty(&node))]),
             range: Some(node.range),
