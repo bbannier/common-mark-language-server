@@ -1,7 +1,7 @@
 use {
     crate::ast,
     log::info,
-    lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
+    lsp_server::{Connection, Message, RequestId, Response},
     lsp_types::{
         notification::{DidChangeTextDocument, DidOpenTextDocument},
         request::{Completion, HoverRequest},
@@ -12,7 +12,7 @@ use {
     url::Url,
 };
 
-fn request_cast<R>(req: Request) -> Result<(RequestId, R::Params), Request>
+fn request_cast<R>(req: lsp_server::Request) -> Result<(RequestId, R::Params), lsp_server::Request>
 where
     R: lsp_types::request::Request,
     R::Params: serde::de::DeserializeOwned,
@@ -20,7 +20,9 @@ where
     req.extract(R::METHOD)
 }
 
-fn notification_cast<N>(not: Notification) -> Result<N::Params, Notification>
+fn notification_cast<N>(
+    not: lsp_server::Notification,
+) -> Result<N::Params, lsp_server::Notification>
 where
     N: lsp_types::notification::Notification,
     N::Params: serde::de::DeserializeOwned,
