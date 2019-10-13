@@ -386,3 +386,103 @@ fn test_make_relative() {
         "baz/quz.md"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        lsp_server::Connection,
+        lsp_types::{
+            notification::{Exit, Initialized, Notification},
+            request::{Initialize, Request, Shutdown},
+            ClientCapabilities, InitializedParams,
+        },
+        serde::Serialize,
+        serde_json::Value,
+        std::cell::Cell,
+    };
+
+    struct TestServer {
+        _thread: jod_thread::JoinHandle<()>,
+        client: Connection,
+        req_id: Cell<u64>,
+    }
+
+    impl TestServer {
+        fn new() -> TestServer {
+            let (connection, client) = Connection::memory();
+            let _thread = jod_thread::Builder::new()
+                .name("test server".to_string())
+                .spawn(|| {
+                    run_server(connection).unwrap();
+                })
+                .unwrap();
+
+            let req_id = Cell::new(0);
+
+            let server = TestServer {
+                _thread,
+                client,
+                req_id,
+            };
+
+            server.send_request::<Initialize>(InitializeParams {
+                capabilities: ClientCapabilities::default(),
+                initialization_options: None,
+                process_id: None,
+                root_path: None,
+                root_uri: None,
+                trace: None,
+                workspace_folders: None,
+            });
+
+            server.send_notification::<Initialized>(InitializedParams {});
+
+            server
+        }
+
+        fn send_request<R>(&self, params: R::Params) -> Value
+        where
+            R: Request,
+            R::Params: Serialize,
+        {
+            let id = self.req_id.get();
+            self.req_id.set(id + 1);
+
+            self.client
+                .sender
+                .send(lsp_server::Message::from(lsp_server::Request::new(
+                    id.into(),
+                    R::METHOD.into(),
+                    params,
+                )))
+                .unwrap();
+
+            match self.client.receiver.recv().unwrap() {
+                lsp_server::Message::Response(response) => response,
+                _ => panic!(),
+            }
+            .result
+            .unwrap()
+        }
+
+        fn send_notification<N>(&self, params: N::Params)
+        where
+            N: Notification,
+            N::Params: Serialize,
+        {
+            let not = lsp_server::Notification::new(N::METHOD.into(), params);
+            self.client
+                .sender
+                .send(lsp_server::Message::Notification(not))
+                .unwrap();
+        }
+    }
+
+    impl Drop for TestServer {
+        fn drop(&mut self) {
+            self.send_request::<Shutdown>(());
+            self.send_notification::<Exit>(());
+        }
+    }
+}
