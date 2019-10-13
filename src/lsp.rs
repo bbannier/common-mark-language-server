@@ -5,7 +5,7 @@ use {
     lsp_types::{
         notification::{DidChangeTextDocument, DidOpenTextDocument},
         request::{Completion, HoverRequest},
-        Hover, HoverContents, InitializeParams, MarkedString, ServerCapabilities,
+        CompletionItem, Hover, HoverContents, InitializeParams, MarkedString, ServerCapabilities,
         TextDocumentPositionParams,
     },
     pulldown_cmark::{Event, Tag},
@@ -212,12 +212,12 @@ impl Server {
                 }
             })
             .flatten()
-            .map(|(label, detail)| lsp_types::CompletionItem {
+            .map(|(label, detail)| CompletionItem {
                 label,
                 detail: Some(detail.into()),
                 ..Default::default()
             })
-            .collect::<Vec<lsp_types::CompletionItem>>();
+            .collect::<Vec<CompletionItem>>();
 
         let resp = Response {
             id,
@@ -396,9 +396,9 @@ mod tests {
         lsp_types::{
             notification::{Exit, Initialized, Notification},
             request::{Initialize, Request, Shutdown},
-            ClientCapabilities, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
-            HoverContents, InitializedParams, MarkedString, Position, Range,
-            TextDocumentIdentifier, TextDocumentItem, VersionedTextDocumentIdentifier,
+            ClientCapabilities, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
+            DidOpenTextDocumentParams, HoverContents, InitializedParams, MarkedString, Position,
+            Range, TextDocumentIdentifier, TextDocumentItem, VersionedTextDocumentIdentifier,
         },
         serde::{Deserialize, Serialize},
         std::cell::Cell,
@@ -560,5 +560,52 @@ mod tests {
             }),
             "The fourth character should match inline code"
         );
+    }
+
+    #[test]
+    fn handle_completion() {
+        let server = TestServer::new();
+
+        let uri = Url::from_file_path("/foo.md").unwrap();
+        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                uri.clone(),
+                "markdown".into(),
+                1,
+                r#"
+# heading
+[reference](
+"#
+                .into(),
+            ),
+        });
+
+        assert_eq!(
+            server.send_request::<Completion>(CompletionParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(uri.clone()),
+                    Position::new(1, 12),
+                ),
+                context: None,
+            }),
+            Some(CompletionResponse::from(vec![CompletionItem::new_simple(
+                "#heading".into(),
+                "# heading\n".into()
+            )])),
+            "Completion at heading should not complete anything"
+        );
+
+        // // FIXME(bbannier): Make this test pass
+        // assert_eq!(
+        //     server.send_request::<Completion>(CompletionParams {
+        //         text_document_position: TextDocumentPositionParams::new(
+        //             TextDocumentIdentifier::new(uri.clone()),
+        //             Position::new(0, 0),
+        //         ),
+        //         context: None,
+        //     }),
+        //     None,
+        //     "Completion at heading should not complete anything"
+        // );
     }
 }
