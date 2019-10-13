@@ -142,7 +142,7 @@ impl Server {
         };
 
         // We select the node with the shortest range overlapping the range.
-        let ast = ast::Query::try_from(contents.as_str())?;
+        let ast = ast::ParsedDocument::try_from(contents.as_str())?;
         let nodes = ast.at(&params.position);
         let node = nodes
             .iter()
@@ -175,7 +175,7 @@ impl Server {
             .documents
             .iter()
             .filter_map(|(uri, document)| {
-                let anchors = ast::Query::try_from(document.as_str())
+                let anchors = ast::ParsedDocument::try_from(document.as_str())
                     .ok()?
                     .nodes()
                     .iter()

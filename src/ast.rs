@@ -224,7 +224,7 @@ fn parse_simple() {
 }
 
 #[derive(Debug)]
-pub struct Query<'a> {
+pub struct ParsedDocument<'a> {
     // TODO(bbannier): We do not need to store each `Node` twice, but could e.g., reference `ast`
     // for `tree`.
     ast: AstNodes<'a>,
@@ -232,7 +232,7 @@ pub struct Query<'a> {
     linebreaks: Vec<usize>,
 }
 
-impl<'a> Query<'a> {
+impl<'a> ParsedDocument<'a> {
     /// Get all nodes overlapping `position`.
     pub fn at(&self, position: &Position) -> Vec<&Node> {
         let start = match to_offset(position, &self.linebreaks) {
@@ -260,7 +260,7 @@ impl<'a> Query<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a str> for Query<'a> {
+impl<'a> TryFrom<&'a str> for ParsedDocument<'a> {
     type Error = &'static str;
 
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
@@ -276,7 +276,7 @@ impl<'a> TryFrom<&'a str> for Query<'a> {
             }
         }));
 
-        Ok(Query {
+        Ok(ParsedDocument {
             ast,
             tree,
             linebreaks,
@@ -287,7 +287,7 @@ impl<'a> TryFrom<&'a str> for Query<'a> {
 #[test]
 fn test_query() {
     let s = "asdasad sdaasa aasd asdasdasdada";
-    let ast = Query::try_from(s).unwrap();
+    let ast = ParsedDocument::try_from(s).unwrap();
 
     assert_eq!(
         ast.at(&Position::new(0, 0)),
