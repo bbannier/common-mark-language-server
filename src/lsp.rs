@@ -418,24 +418,6 @@ fn make_relative(file: &Url, base: &Url) -> Option<String> {
         .ok()
 }
 
-#[test]
-fn test_make_relative() {
-    let root_uri = Url::from_file_path("/foo/bar").unwrap();
-    assert_eq!(
-        make_relative(&Url::from_file_path("/foo/bar/baz.md").unwrap(), &root_uri).unwrap(),
-        "baz.md"
-    );
-
-    assert_eq!(
-        make_relative(
-            &Url::from_file_path("/foo/bar/baz/quz.md").unwrap(),
-            &root_uri
-        )
-        .unwrap(),
-        "baz/quz.md"
-    );
-}
-
 #[cfg(test)]
 mod tests {
     use {
@@ -450,6 +432,7 @@ mod tests {
         },
         serde::{Deserialize, Serialize},
         std::cell::Cell,
+        textwrap::dedent,
     };
 
     struct TestServer {
@@ -539,10 +522,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_make_relative() {
+        let root_uri = Url::from_file_path("/foo/bar").unwrap();
+        assert_eq!(
+            make_relative(&Url::from_file_path("/foo/bar/baz.md").unwrap(), &root_uri).unwrap(),
+            "baz.md"
+        );
+
+        assert_eq!(
+            make_relative(
+                &Url::from_file_path("/foo/bar/baz/quz.md").unwrap(),
+                &root_uri
+            )
+            .unwrap(),
+            "baz/quz.md"
+        );
+    }
+
     // This test checks hover handling, and as side effects also the loading of docs via
     // `DidOpenTextDocument` and modification via `DidChangeTextDocument` notifications.
     #[test]
-    fn handle_hover() {
+    fn hover() {
         let server = TestServer::new();
 
         let uri = Url::from_file_path("/foo/bar.md").unwrap();
@@ -611,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_completion() {
+    fn completion() {
         let server = TestServer::new();
 
         let uri = Url::from_file_path("/foo.md").unwrap();
@@ -620,11 +621,12 @@ mod tests {
                 uri.clone(),
                 "markdown".into(),
                 1,
-                r#"
-# heading
-[reference](
-"#
-                .into(),
+                dedent(
+                    "
+                    # heading
+                    [reference](
+                    ",
+                ),
             ),
         });
 
