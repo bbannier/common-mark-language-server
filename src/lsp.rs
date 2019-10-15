@@ -20,7 +20,11 @@ use {
     url::Url,
 };
 
-fn request_cast<R>(req: lsp_server::Request) -> Result<(RequestId, R::Params), lsp_server::Request>
+type Result<T> = std::result::Result<T, Box<dyn Error + Sync + Send>>;
+
+fn request_cast<R>(
+    req: lsp_server::Request,
+) -> std::result::Result<(RequestId, R::Params), lsp_server::Request>
 where
     R: Request,
     R::Params: serde::de::DeserializeOwned,
@@ -30,7 +34,7 @@ where
 
 fn notification_cast<N>(
     not: lsp_server::Notification,
-) -> Result<N::Params, lsp_server::Notification>
+) -> std::result::Result<N::Params, lsp_server::Notification>
 where
     N: Notification,
     N::Params: serde::de::DeserializeOwned,
@@ -68,7 +72,7 @@ fn server_capabilities() -> ServerCapabilities {
         ..Default::default()
     }
 }
-pub fn run_server(connection: Connection) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub fn run_server(connection: Connection) -> Result<()> {
     let server_capabilities = server_capabilities();
     let initialize_params = connection.initialize(serde_json::to_value(server_capabilities)?)?;
     // FIXME(bbannier): use these.
@@ -97,7 +101,7 @@ pub fn run_server(connection: Connection) -> Result<(), Box<dyn Error + Send + S
 }
 
 impl Server {
-    pub fn main_loop(&mut self) -> Result<(), Box<dyn Error + Sync + Send>> {
+    pub fn main_loop(&mut self) -> Result<()> {
         info!("starting example main loop");
 
         while let Some(msg) = self.connection.receiver.iter().next() {
@@ -157,7 +161,7 @@ impl Server {
         &self,
         id: lsp_server::RequestId,
         params: TextDocumentPositionParams,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    ) -> Result<()> {
         info!("got hover request #{}: {:?}", id, params);
         let uri = params.text_document.uri;
         let document = match self.documents.get(&uri) {
@@ -192,11 +196,7 @@ impl Server {
         Ok(())
     }
 
-    fn handle_completion(
-        &self,
-        id: lsp_server::RequestId,
-        params: CompletionParams,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    fn handle_completion(&self, id: lsp_server::RequestId, params: CompletionParams) -> Result<()> {
         // Do a simple check whether we are actually completing a link. We only check whether the
         // character before the completion position is a literal `](`.
         let good_position = match self
@@ -268,11 +268,7 @@ impl Server {
         Ok(())
     }
 
-    fn handle_references(
-        &self,
-        id: lsp_server::RequestId,
-        params: ReferenceParams,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    fn handle_references(&self, id: lsp_server::RequestId, params: ReferenceParams) -> Result<()> {
         let text_document_position = params.text_document_position;
 
         let nodes: Vec<_> = self
@@ -368,10 +364,7 @@ impl Server {
         Ok(())
     }
 
-    fn handle_did_open_text_document(
-        &mut self,
-        params: DidOpenTextDocumentParams,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    fn handle_did_open_text_document(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
 
@@ -381,7 +374,7 @@ impl Server {
     fn handle_did_change_text_document(
         &mut self,
         mut params: DidChangeTextDocumentParams,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    ) -> Result<()> {
         let uri = params.text_document.uri;
         let text = params
             .content_changes
@@ -392,11 +385,7 @@ impl Server {
         self.update_document(uri, text)
     }
 
-    fn update_document(
-        &mut self,
-        uri: Url,
-        text: String,
-    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+    fn update_document(&mut self, uri: Url, text: String) -> Result<()> {
         #[allow(clippy::redundant_closure)]
         let document =
             match rentals::Document::try_new(text, |text| ast::ParsedDocument::try_from(text)) {
