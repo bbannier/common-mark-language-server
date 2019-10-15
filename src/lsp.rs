@@ -4,7 +4,9 @@ use {
     lsp_server::{Connection, Message, RequestId, Response},
     lsp_types::{
         notification::{DidChangeTextDocument, DidOpenTextDocument, Notification},
-        request::{Completion, HoverRequest, References, Request},
+        request::{
+            Completion, GotoDefinition, GotoDefinitionResponse, HoverRequest, References, Request,
+        },
         CompletionItem, CompletionOptions, CompletionParams, DidChangeTextDocumentParams,
         DidOpenTextDocumentParams, Hover, HoverContents, InitializeParams, Location, MarkedString,
         ReferenceParams, ServerCapabilities, TextDocumentPositionParams,
@@ -69,6 +71,7 @@ fn server_capabilities() -> ServerCapabilities {
         }),
         hover_provider: Some(true),
         references_provider: Some(true),
+        definition_provider: Some(true),
         ..Default::default()
     }
 }
@@ -124,9 +127,16 @@ impl Server {
                         }
                         Err(req) => req,
                     };
-                    match request_cast::<References>(req) {
+                    let req = match request_cast::<References>(req) {
                         Ok((id, params)) => {
                             self.handle_references(id, params)?;
+                            continue;
+                        }
+                        Err(req) => req,
+                    };
+                    match request_cast::<GotoDefinition>(req) {
+                        Ok((id, params)) => {
+                            self.handle_gotodefinition(id, params)?;
                             continue;
                         }
                         Err(req) => req,
@@ -357,6 +367,65 @@ impl Server {
             })
             .chain(declaration.iter().cloned())
             .collect::<Vec<_>>();
+
+        self.connection
+            .sender
+            .send(Message::Response(Response::new_ok(id, result)))?;
+        Ok(())
+    }
+
+    fn handle_gotodefinition(
+        &self,
+        id: lsp_server::RequestId,
+        params: TextDocumentPositionParams,
+    ) -> Result<()> {
+        let result: Option<GotoDefinitionResponse> = self
+            .documents
+            .get(&params.text_document.uri)
+            .and_then(|document| {
+                // Extract any link at the current position.
+                document
+                    .all()
+                    .parsed
+                    .at(&params.position)
+                    .iter()
+                    .find_map(|node| match &node.data {
+                        Event::Start(Tag::Link(_, dest, _)) => Some(dest.as_ref()),
+                        _ => None,
+                    })
+            })
+            .and_then(|dest| {
+                // Translate reference to uri & anchor.
+                let dest = if dest.starts_with('#') {
+                    dest.trim_start_matches('#')
+                } else {
+                    // Does not look like a local reference.
+                    return None;
+                };
+
+                let components: Vec<_> = dest.rsplitn(2, '/').collect();
+                let anchor = components[0];
+                let uri = if components.len() == 2 {
+                    Url::from_file_path(format!("{}/{}", self.root_uri, components[1])).ok()?
+                } else {
+                    params.text_document.uri
+                };
+
+                Some((uri, anchor))
+            })
+            .and_then(|(uri, anchor)| {
+                // Obtain dest node and create response.
+                self.documents.get(&uri).and_then(|document| {
+                    document.all().parsed.nodes().iter().find_map(|node| {
+                        if let Some(node_anchor) = &node.anchor {
+                            if node_anchor == anchor {
+                                return Some(Location::new(uri.clone(), node.range).into());
+                            }
+                        }
+                        None
+                    })
+                })
+            });
 
         self.connection
             .sender
@@ -893,6 +962,37 @@ mod tests {
                     Range::new(Position::new(2, 0), Position::new(2, 11))
                 ),
             ])
+        );
+    }
+
+    #[test]
+    fn gotodefinition() {
+        let server = TestServer::new();
+
+        let uri = Url::from_file_path("/foo.md").unwrap();
+        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                uri.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                    # h1
+                    [ref1](#h1)
+                    ",
+                ),
+            ),
+        });
+
+        assert_eq!(
+            server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
+                TextDocumentIdentifier::new(uri.clone()),
+                Position::new(2, 0),
+            )),
+            Some(GotoDefinitionResponse::Scalar(Location::new(
+                uri,
+                Range::new(Position::new(1, 0), Position::new(2, 0))
+            )))
         );
     }
 }
