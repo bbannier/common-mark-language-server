@@ -4,11 +4,11 @@ use {
     lsp_server::{Connection, Message, RequestId, Response},
     lsp_types::{
         notification::{DidChangeTextDocument, DidOpenTextDocument, Notification},
-        request::{Completion, HoverRequest, Request},
+        request::{Completion, HoverRequest, References, Request},
         CompletionItem, CompletionOptions, CompletionParams, DidChangeTextDocumentParams,
-        DidOpenTextDocumentParams, Hover, HoverContents, InitializeParams, MarkedString,
-        ServerCapabilities, TextDocumentPositionParams, TextDocumentSyncCapability,
-        TextDocumentSyncKind,
+        DidOpenTextDocumentParams, Hover, HoverContents, InitializeParams, Location, MarkedString,
+        ReferenceParams, ServerCapabilities, TextDocumentPositionParams,
+        TextDocumentSyncCapability, TextDocumentSyncKind,
     },
     pulldown_cmark::{Event, Tag},
     std::{
@@ -64,6 +64,7 @@ fn server_capabilities() -> ServerCapabilities {
             ..Default::default()
         }),
         hover_provider: Some(true),
+        references_provider: Some(true),
         ..Default::default()
     }
 }
@@ -112,9 +113,16 @@ impl Server {
                         }
                         Err(req) => req,
                     };
-                    match request_cast::<Completion>(req) {
+                    let req = match request_cast::<Completion>(req) {
                         Ok((id, params)) => {
                             self.handle_completion(id, params)?;
+                            continue;
+                        }
+                        Err(req) => req,
+                    };
+                    match request_cast::<References>(req) {
+                        Ok((id, params)) => {
+                            self.handle_references(id, params)?;
                             continue;
                         }
                         Err(req) => req,
@@ -231,22 +239,14 @@ impl Server {
                     .iter()
                     .filter_map(|node| match &node.anchor {
                         Some(anchor) => {
-                            let label = {
-                                if uri == &params.text_document_position.text_document.uri {
-                                    format!("#{}", anchor)
-                                } else {
-                                    format!(
-                                        "#{}/{}",
-                                        make_relative(uri, &self.root_uri)
-                                            .expect("file expected to be in workspace"),
-                                        anchor
-                                    )
-                                }
-                            };
-
                             let detail = &document.document[node.offsets.clone()];
+                            let reference = full_reference(
+                                (&anchor, uri),
+                                &self.root_uri,
+                                &params.text_document_position.text_document.uri,
+                            )?;
 
-                            Some((label, detail))
+                            Some((reference, detail))
                         }
                         _ => None,
                     })
@@ -265,6 +265,106 @@ impl Server {
         self.connection
             .sender
             .send(Message::Response(Response::new_ok(id, items)))?;
+        Ok(())
+    }
+
+    fn handle_references(
+        &self,
+        id: lsp_server::RequestId,
+        params: ReferenceParams,
+    ) -> Result<(), Box<dyn Error + Sync + Send>> {
+        let text_document_position = params.text_document_position;
+
+        let nodes: Vec<_> = self
+            .documents
+            .get(&text_document_position.text_document.uri)
+            .iter()
+            .flat_map(|document| document.all().parsed.at(&text_document_position.position))
+            .collect();
+
+        let (anchor, anchor_range) = match nodes
+            .iter()
+            .filter(|node| match &node.data {
+                Event::Start(Tag::Link(_, _, _)) => true,
+                _ => false,
+            })
+            .min_by_key(|node| node.offsets.len())
+            .map(|node| match &node.data {
+                Event::Start(Tag::Link(_, dest, _)) => (
+                    String::from(dest.as_ref()).trim_start_matches('#').into(),
+                    node.range,
+                ),
+                _ => unreachable!(),
+            })
+            .or_else(|| {
+                nodes
+                    .iter()
+                    .filter(|node| node.anchor.is_some())
+                    .min_by_key(|node| node.offsets.len())
+                    .map(|node| {
+                        (
+                            node.anchor
+                                .as_ref()
+                                .expect("we should have filtered for some anchors previously")
+                                .clone(),
+                            node.range,
+                        )
+                    })
+            }) {
+            Some((anchor, range)) => (anchor, range),
+            _ => {
+                // No anchor found at position, return empty result.
+                self.connection
+                    .sender
+                    .send(Message::Response(Response::new_ok(
+                        id,
+                        Option::<Vec<Location>>::None,
+                    )))?;
+                return Ok(());
+            }
+        };
+
+        let declaration = if params.context.include_declaration {
+            vec![Location::new(
+                text_document_position.text_document.uri.clone(),
+                anchor_range,
+            )]
+        } else {
+            vec![]
+        };
+
+        let result = self
+            .documents
+            .iter()
+            .flat_map(move |(uri, document)| {
+                let uri = uri;
+                let request_uri = text_document_position.text_document.uri.clone();
+                let anchor = anchor.clone();
+                document
+                    .all()
+                    .parsed
+                    .nodes()
+                    .iter()
+                    .filter_map(move |node| match &node.data {
+                        Event::Start(Tag::Link(_, reference, _))
+                            if reference.as_ref()
+                                == full_reference(
+                                    (&anchor, uri),
+                                    &self.root_uri,
+                                    &request_uri,
+                                )? =>
+                        {
+                            Some(Location::new(uri.clone(), node.range))
+                        }
+                        _ => None,
+                    })
+            })
+            .chain(declaration.iter().cloned())
+            .collect::<Vec<_>>();
+
+        self.connection
+            .sender
+            .send(Message::Response(Response::new_ok(id, result)))?;
         Ok(())
     }
 
@@ -404,6 +504,14 @@ fn pretty(node: &ast::Node) -> String {
     }
 }
 
+fn full_reference(target: (&str, &Url), base: &Url, source: &Url) -> Option<String> {
+    Some(if target.1 == source {
+        format!("#{}", target.0)
+    } else {
+        format!("#{}/{}", make_relative(target.1, base)?, target.0)
+    })
+}
+
 fn make_relative(file: &Url, base: &Url) -> Option<String> {
     let file = Path::new(file.path());
     let root_uri = Path::new(base.path());
@@ -425,10 +533,11 @@ mod tests {
         lsp_server::Connection,
         lsp_types::{
             notification::{Exit, Initialized, Notification},
-            request::{Initialize, Request, Shutdown},
+            request::{Initialize, References, Request, Shutdown},
             ClientCapabilities, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
-            DidOpenTextDocumentParams, HoverContents, InitializedParams, MarkedString, Position,
-            Range, TextDocumentIdentifier, TextDocumentItem, VersionedTextDocumentIdentifier,
+            DidOpenTextDocumentParams, HoverContents, InitializedParams, Location, MarkedString,
+            Position, Range, ReferenceContext, ReferenceParams, TextDocumentIdentifier,
+            TextDocumentItem, VersionedTextDocumentIdentifier,
         },
         serde::{Deserialize, Serialize},
         std::cell::Cell,
@@ -537,6 +646,23 @@ mod tests {
             )
             .unwrap(),
             "baz/quz.md"
+        );
+    }
+
+    #[test]
+    fn test_full_reference() {
+        let uri = Url::from_file_path("/foo/bar.md").unwrap();
+        let anchor = "baz";
+        let base = Url::from_file_path("/foo").unwrap();
+        let source = Url::from_file_path("/foo/quaz.md").unwrap();
+
+        assert_eq!(
+            full_reference((anchor, &uri), &base, &uri),
+            Some("#baz".into())
+        );
+        assert_eq!(
+            full_reference((anchor, &uri), &base, &source),
+            Some("#bar.md/baz".into())
         );
     }
 
@@ -667,6 +793,117 @@ mod tests {
             }),
             Some(CompletionResponse::from(vec![])),
             "Completion at heading should not complete anything"
+        );
+    }
+
+    #[test]
+    fn references() {
+        let server = TestServer::new();
+
+        let uri = Url::from_file_path("/foo.md").unwrap();
+        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                uri.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                    # h1
+                    [ref1](#h1)
+                    [ref2](#h2)
+
+                    # h2
+                    [ref1](#h1)
+                    ",
+                ),
+            ),
+        });
+
+        assert_eq!(
+            server.send_request::<References>(ReferenceParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier::new(uri.clone()),
+                    position: Position::new(0, 0),
+                },
+                context: ReferenceContext {
+                    include_declaration: false,
+                },
+            }),
+            None
+        );
+
+        assert_eq!(
+            server.send_request::<References>(ReferenceParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier::new(uri.clone()),
+                    position: Position::new(1, 0),
+                },
+                context: ReferenceContext {
+                    include_declaration: true,
+                },
+            }),
+            Some(vec![
+                Location::new(
+                    uri.clone(),
+                    Range::new(Position::new(2, 0), Position::new(2, 11))
+                ),
+                Location::new(
+                    uri.clone(),
+                    Range::new(Position::new(6, 0), Position::new(6, 11))
+                ),
+                Location::new(
+                    uri.clone(),
+                    Range::new(Position::new(1, 0), Position::new(2, 0))
+                ),
+            ])
+        );
+
+        assert_eq!(
+            server.send_request::<References>(ReferenceParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier::new(uri.clone()),
+                    position: Position::new(1, 0),
+                },
+                context: ReferenceContext {
+                    include_declaration: false,
+                },
+            }),
+            Some(vec![
+                Location::new(
+                    uri.clone(),
+                    Range::new(Position::new(2, 0), Position::new(2, 11))
+                ),
+                Location::new(
+                    uri.clone(),
+                    Range::new(Position::new(6, 0), Position::new(6, 11))
+                ),
+            ])
+        );
+
+        assert_eq!(
+            server.send_request::<References>(ReferenceParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier::new(uri.clone()),
+                    position: Position::new(2, 7),
+                },
+                context: ReferenceContext {
+                    include_declaration: true,
+                },
+            }),
+            Some(vec![
+                Location::new(
+                    uri.clone(),
+                    Range::new(Position::new(2, 0), Position::new(2, 11))
+                ),
+                Location::new(
+                    uri.clone(),
+                    Range::new(Position::new(6, 0), Position::new(6, 11))
+                ),
+                Location::new(
+                    uri.clone(),
+                    Range::new(Position::new(2, 0), Position::new(2, 11))
+                ),
+            ])
         );
     }
 }
