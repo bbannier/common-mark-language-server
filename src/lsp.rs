@@ -145,6 +145,12 @@ impl Server {
             Some(xs) => xs,
             None => {
                 info!("did not find file '{}' in database", &uri);
+                self.connection
+                    .sender
+                    .send(Message::Response(Response::new_ok(
+                        id,
+                        Option::<HoverContents>::None,
+                    )))?;
                 return Ok(());
             }
         };
