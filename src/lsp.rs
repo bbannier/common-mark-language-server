@@ -5,11 +5,13 @@ use {
     lsp_types::{
         notification::{DidChangeTextDocument, DidOpenTextDocument, Notification},
         request::{
-            Completion, GotoDefinition, GotoDefinitionResponse, HoverRequest, References, Request,
+            Completion, FoldingRangeRequest, GotoDefinition, GotoDefinitionResponse, HoverRequest,
+            References, Request,
         },
         CompletionItem, CompletionOptions, CompletionParams, DidChangeTextDocumentParams,
-        DidOpenTextDocumentParams, Hover, HoverContents, InitializeParams, Location, MarkedString,
-        ReferenceParams, ServerCapabilities, TextDocumentPositionParams,
+        DidOpenTextDocumentParams, FoldingRange, FoldingRangeKind, FoldingRangeParams,
+        FoldingRangeProviderCapability, Hover, HoverContents, InitializeParams, Location,
+        MarkedString, ReferenceParams, ServerCapabilities, TextDocumentPositionParams,
         TextDocumentSyncCapability, TextDocumentSyncKind,
     },
     pulldown_cmark::{Event, Tag},
@@ -72,6 +74,7 @@ fn server_capabilities() -> ServerCapabilities {
         hover_provider: Some(true),
         references_provider: Some(true),
         definition_provider: Some(true),
+        folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
         ..Default::default()
     }
 }
@@ -134,9 +137,16 @@ impl Server {
                         }
                         Err(req) => req,
                     };
-                    match request_cast::<GotoDefinition>(req) {
+                    let req = match request_cast::<GotoDefinition>(req) {
                         Ok((id, params)) => {
                             self.handle_gotodefinition(id, params)?;
+                            continue;
+                        }
+                        Err(req) => req,
+                    };
+                    match request_cast::<FoldingRangeRequest>(req) {
+                        Ok((id, params)) => {
+                            self.handle_folding_range_request(id, params)?;
                             continue;
                         }
                         Err(req) => req,
@@ -426,6 +436,81 @@ impl Server {
                     })
                 })
             });
+
+        self.connection
+            .sender
+            .send(Message::Response(Response::new_ok(id, result)))?;
+        Ok(())
+    }
+
+    fn handle_folding_range_request(
+        &self,
+        id: lsp_server::RequestId,
+        params: FoldingRangeParams,
+    ) -> Result<()> {
+        let result: Option<Vec<_>> =
+            self.documents
+                .get(&params.text_document.uri)
+                .map(|document| {
+                    let nodes = document.all().parsed.nodes();
+
+                    let last_node = nodes.iter().max_by_key(|node| node.offsets.end);
+
+                    let headings = {
+                        let mut xs = nodes
+                            .iter()
+                            .filter_map(|node| match &node.data {
+                                Event::Start(Tag::Heading(level)) => Some((level, node)),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
+
+                        // Ensure correct ordering as we use these to look up the next section below.
+                        xs.sort_unstable_by_key(|(_, x)| x.offsets.start);
+
+                        xs
+                    };
+
+                    nodes
+                        .iter()
+                        .filter_map(|node| match &node.data {
+                            Event::Start(Tag::Heading(level)) => {
+                                // Translate headings into sections.
+
+                                // We can reuse a heading's start tag, but need to generate a corresponding end tag.
+                                let end =
+                                    headings
+                                        .iter()
+                                        .skip_while(|(_, n)| n.range != node.range)
+                                        .skip(1).skip_while(|(&l, _)| l > *level)
+                                        .next()
+                                        . map(|(_,n)|
+                                            // We let the range end before the next section. This
+                                            // is safe as we need to have lines preceeding the
+                                            // _next_ section.
+                                            n.range.start.line - 1)
+                                        .unwrap_or(last_node.expect("if we iterate anything at all there should be a last node").range.end.line)
+                                    ;
+
+                                Some(FoldingRange {
+                                    start_line: node.range.start.line,
+                                    start_character: None,
+                                    end_line: end,
+                                    end_character: None,
+                                    kind: Some(FoldingRangeKind::Region),
+                                })
+                            }
+                            Event::Start(_) => Some(FoldingRange {
+                                start_line: node.range.start.line,
+                                start_character: None,
+                                end_line: node.range.end.line,
+                                end_character: None,
+                                kind: Some(FoldingRangeKind::Region),
+                            }),
+                            _ => None,
+                        })
+                        .collect()
+                });
 
         self.connection
             .sender
@@ -993,6 +1078,80 @@ mod tests {
                 uri,
                 Range::new(Position::new(1, 0), Position::new(2, 0))
             )))
+        );
+    }
+
+    #[test]
+    fn folding_range_request() {
+        let server = TestServer::new();
+
+        let uri = Url::from_file_path("/foo.md").unwrap();
+        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                uri.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                    # h1
+
+                    Some section here
+                    with multiple lines.
+
+                    ## h2
+
+                    This section has a paragraph
+                    followed by a code block,
+
+                    ```
+                    int main() {{
+                    ```
+                    ",
+                ),
+            ),
+        });
+
+        assert_eq!(
+            server.send_request::<FoldingRangeRequest>(FoldingRangeParams {
+                text_document: TextDocumentIdentifier::new(uri)
+            }),
+            Some(vec![
+                FoldingRange {
+                    start_line: 1,
+                    start_character: None,
+                    end_line: 13,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region)
+                },
+                FoldingRange {
+                    start_line: 3,
+                    start_character: None,
+                    end_line: 5,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region)
+                },
+                FoldingRange {
+                    start_line: 6,
+                    start_character: None,
+                    end_line: 13,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region)
+                },
+                FoldingRange {
+                    start_line: 8,
+                    start_character: None,
+                    end_line: 10,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region)
+                },
+                FoldingRange {
+                    start_line: 11,
+                    start_character: None,
+                    end_line: 13,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region)
+                }
+            ]),
         );
     }
 }
