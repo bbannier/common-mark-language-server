@@ -38,10 +38,21 @@ where
     not.extract(N::METHOD)
 }
 
+rental! {
+    pub mod rentals {
+    use ast::ParsedDocument;
+        #[rental(covariant)]
+        pub struct Document {
+            document: String,
+            parsed: ParsedDocument<'document>,
+        }
+    }
+}
+
 pub struct Server {
     connection: Connection,
     // TODO(bbannier): Take versions into account.
-    documents: HashMap<Url, String>,
+    documents: HashMap<Url, rentals::Document>,
     root_uri: Url,
 }
 
@@ -141,8 +152,8 @@ impl Server {
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
         info!("got hover request #{}: {:?}", id, params);
         let uri = params.text_document.uri;
-        let contents = match self.documents.get(&uri) {
-            Some(xs) => xs,
+        let document = match self.documents.get(&uri) {
+            Some(document) => document.all(),
             None => {
                 info!("did not find file '{}' in database", &uri);
                 self.connection
@@ -156,8 +167,7 @@ impl Server {
         };
 
         // We select the node with the shortest range overlapping the range.
-        let ast = ast::ParsedDocument::try_from(contents.as_str())?;
-        let nodes = ast.at(&params.position);
+        let nodes = document.parsed.at(&params.position);
         let node = nodes
             .iter()
             .min_by(|x, y| x.offsets.len().cmp(&y.offsets.len()));
@@ -190,8 +200,12 @@ impl Server {
                 let position = &params.text_document_position.position;
                 let character: usize = position.character.try_into()?;
                 character >= 2
-                    && document.lines().nth(position.line.try_into()?).unwrap()
-                        [character - 2..character]
+                    && document
+                        .all()
+                        .document
+                        .lines()
+                        .nth(position.line.try_into()?)
+                        .unwrap()[character - 2..character]
                         == *"]("
             }
         };
@@ -210,8 +224,9 @@ impl Server {
             .documents
             .iter()
             .filter_map(|(uri, document)| {
-                let anchors = ast::ParsedDocument::try_from(document.as_str())
-                    .ok()?
+                let document = document.all();
+                let anchors = document
+                    .parsed
                     .nodes()
                     .iter()
                     .filter_map(|node| match &node.anchor {
@@ -229,7 +244,7 @@ impl Server {
                                 }
                             };
 
-                            let detail = &document[node.offsets.clone()];
+                            let detail = &document.document[node.offsets.clone()];
 
                             Some((label, detail))
                         }
@@ -282,7 +297,16 @@ impl Server {
         uri: Url,
         text: String,
     ) -> Result<(), Box<dyn Error + Sync + Send>> {
-        self.documents.insert(uri, text);
+        #[allow(clippy::redundant_closure)]
+        let document =
+            match rentals::Document::try_new(text, |text| ast::ParsedDocument::try_from(text)) {
+                Ok(document) => document,
+                Err(_) => {
+                    return Ok(());
+                }
+            };
+
+        self.documents.insert(uri, document);
 
         Ok(())
     }
