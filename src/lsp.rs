@@ -247,6 +247,7 @@ impl Server {
         }
 
         // For now just complete anchors.
+        // FIXME(bbannier): correctly handle references to other documents.
         let items = self
             .documents
             .iter()
