@@ -11,12 +11,12 @@ use {
         CompletionItem, CompletionOptions, CompletionParams, DidChangeTextDocumentParams,
         DidOpenTextDocumentParams, FoldingRange, FoldingRangeKind, FoldingRangeParams,
         FoldingRangeProviderCapability, Hover, HoverContents, InitializeParams, Location,
-        MarkedString, ReferenceParams, ServerCapabilities, TextDocumentPositionParams,
-        TextDocumentSyncCapability, TextDocumentSyncKind,
+        MarkedString, Position, Range, ReferenceParams, ServerCapabilities,
+        TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
     },
     pulldown_cmark::{Event, Tag},
     std::{
-        collections::HashMap,
+        collections::{HashMap, VecDeque},
         convert::{TryFrom, TryInto},
         error::Error,
         path::Path,
@@ -406,31 +406,26 @@ impl Server {
             })
             .and_then(|dest| {
                 // Translate reference to uri & anchor.
-                let dest = if dest.starts_with('#') {
-                    dest.trim_start_matches('#')
-                } else {
-                    // Does not look like a local reference.
-                    return None;
-                };
-
-                let components: Vec<_> = dest.rsplitn(2, '/').collect();
-                let anchor = components[0];
-                let uri = if components.len() == 2 {
-                    Url::from_file_path(format!("{}/{}", self.root_uri, components[1])).ok()?
-                } else {
-                    params.text_document.uri
-                };
-
-                Some((uri, anchor))
+                from_reference(dest, &params.text_document.uri)
             })
             .and_then(|(uri, anchor)| {
                 // Obtain dest node and create response.
                 self.documents.get(&uri).and_then(|document| {
                     document.all().parsed.nodes().iter().find_map(|node| {
-                        if let Some(node_anchor) = &node.anchor {
-                            if node_anchor == anchor {
-                                return Some(Location::new(uri.clone(), node.range).into());
+                        if let Some(anchor) = &anchor {
+                            if let Some(node_anchor) = &node.anchor {
+                                if node_anchor == anchor {
+                                    return Some(Location::new(uri.clone(), node.range).into());
+                                }
                             }
+                        } else {
+                            return Some(
+                                Location::new(
+                                    uri.clone(),
+                                    Range::new(Position::new(0, 0), Position::new(0, 0)),
+                                )
+                                .into(),
+                            );
                         }
                         None
                     })
@@ -540,6 +535,8 @@ impl Server {
     }
 
     fn update_document(&mut self, uri: Url, text: String) -> Result<()> {
+        info!("Updating {}", &uri);
+
         #[allow(clippy::redundant_closure)]
         let document =
             match rentals::Document::try_new(text, |text| ast::ParsedDocument::try_from(text)) {
@@ -549,7 +546,44 @@ impl Server {
                 }
             };
 
+        // Discover other documents we should parse.
+        let documents = document
+            .all()
+            .parsed
+            .nodes()
+            .iter()
+            .filter_map(|node: &ast::Node| match &node.data {
+                Event::Start(Tag::Link(_, dest, _)) => {
+                    let (document, _anchor) = from_reference(dest.as_ref(), &uri)?;
+
+                    if uri != document
+                        && !self.documents.contains_key(&document)
+                        && document.scheme() == "file"
+                    {
+                        Some(document)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        // Insert before handling references to avoid infinite recursion.
         self.documents.insert(uri, document);
+
+        // FIXME(bbannier): this should really be done async.
+        for document in &documents {
+            let text = match std::fs::read_to_string(document.to_file_path().unwrap()) {
+                Ok(text) => text,
+                Err(_err) => {
+                    // FIXME(bbannier): propagate read failures to caller.
+                    continue;
+                }
+            };
+
+            self.update_document(document.clone(), text)?;
+        }
 
         Ok(())
     }
@@ -669,6 +703,36 @@ fn make_relative(file: &Url, base: &Url) -> Option<String> {
         .ok()
 }
 
+fn from_reference<'a>(reference: &'a str, from: &Url) -> Option<(Url, Option<&'a str>)> {
+    let base = {
+        let mut path = from.to_file_path().ok()?;
+        if !path.pop() {
+            return None;
+        }
+
+        Url::from_directory_path(path).ok()?
+    };
+
+    let (reference, anchor) = {
+        let split: VecDeque<&str> = reference.rsplitn(2, '#').collect();
+        let (reference, anchor) = match split.len() {
+            1 => (split[0].trim_end_matches('/'), None),
+            2 => (split[1].trim_end_matches('/'), Some(split[0])),
+            _ => return None,
+        };
+
+        if !reference.is_empty() {
+            (reference, anchor)
+        } else {
+            (from.as_str(), anchor)
+        }
+    };
+
+    let reference = base.join(reference).ok()?;
+
+    Some((reference, anchor))
+}
+
 #[cfg(test)]
 mod tests {
     use {
@@ -679,8 +743,8 @@ mod tests {
             request::{Initialize, References, Request, Shutdown},
             ClientCapabilities, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
             DidOpenTextDocumentParams, HoverContents, InitializedParams, Location, MarkedString,
-            Position, Range, ReferenceContext, ReferenceParams, TextDocumentIdentifier,
-            TextDocumentItem, VersionedTextDocumentIdentifier,
+            Position, ReferenceContext, ReferenceParams, TextDocumentIdentifier, TextDocumentItem,
+            VersionedTextDocumentIdentifier,
         },
         serde::{Deserialize, Serialize},
         std::cell::Cell,
@@ -806,6 +870,32 @@ mod tests {
         assert_eq!(
             full_reference((anchor, &uri), &base, &source),
             Some("#bar.md/baz".into())
+        );
+    }
+
+    #[test]
+    fn test_from_reference() {
+        let root = Url::from_file_path("/").unwrap();
+        let base = root.join("foo").unwrap();
+
+        assert_eq!(
+            from_reference("#baz", &base.join("foo.md").unwrap()),
+            Some((base.join("foo.md").unwrap(), Some("baz")))
+        );
+
+        assert_eq!(
+            from_reference("bar.md", &base.join("foo.md").unwrap()),
+            Some((base.join("bar.md").unwrap(), None))
+        );
+
+        assert_eq!(
+            from_reference("bar.md/#baz", &base.join("foo.md").unwrap()),
+            Some((base.join("bar.md").unwrap(), Some("baz")))
+        );
+
+        assert_eq!(
+            from_reference("../bar.md/#baz", &base.join("foo.md").unwrap()),
+            Some((root.join("bar.md").unwrap(), Some("baz")))
         );
     }
 
@@ -1054,16 +1144,28 @@ mod tests {
     fn gotodefinition() {
         let server = TestServer::new();
 
-        let uri = Url::from_file_path("/foo.md").unwrap();
+        let bar = Url::from_file_path("/bar.md").unwrap();
         server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
-                uri.clone(),
+                bar.clone(),
+                "markdown".into(),
+                1,
+                String::from("# bar"),
+            ),
+        });
+
+        let foo = Url::from_file_path("/foo.md").unwrap();
+        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                foo.clone(),
                 "markdown".into(),
                 1,
                 dedent(
                     "
                     # h1
                     [ref1](#h1)
+                    [bar](bar.md)
+                    [bar_bar](bar.md/#bar)
                     ",
                 ),
             ),
@@ -1071,12 +1173,34 @@ mod tests {
 
         assert_eq!(
             server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier::new(uri.clone()),
+                TextDocumentIdentifier::new(foo.clone()),
                 Position::new(2, 0),
             )),
             Some(GotoDefinitionResponse::Scalar(Location::new(
-                uri,
+                foo.clone(),
                 Range::new(Position::new(1, 0), Position::new(2, 0))
+            )))
+        );
+
+        assert_eq!(
+            server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
+                TextDocumentIdentifier::new(foo.clone()),
+                Position::new(3, 0),
+            )),
+            Some(GotoDefinitionResponse::Scalar(Location::new(
+                bar.clone(),
+                Range::new(Position::new(0, 0), Position::new(0, 0))
+            )))
+        );
+
+        assert_eq!(
+            server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
+                TextDocumentIdentifier::new(foo.clone()),
+                Position::new(4, 0),
+            )),
+            Some(GotoDefinitionResponse::Scalar(Location::new(
+                bar.clone(),
+                Range::new(Position::new(0, 0), Position::new(0, 5))
             )))
         );
     }
