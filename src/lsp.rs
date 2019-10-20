@@ -15,6 +15,7 @@ use {
         TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
     },
     pulldown_cmark::{Event, Tag},
+    serde::Serialize,
     std::{
         collections::{HashMap, VecDeque},
         convert::{TryFrom, TryInto},
@@ -177,6 +178,16 @@ impl Server {
         Ok(())
     }
 
+    fn response<R>(&self, id: RequestId, response: R) -> Result<()>
+    where
+        R: Serialize,
+    {
+        self.connection
+            .sender
+            .send(Message::Response(Response::new_ok(id, response)))
+            .map_err(|err| err.into())
+    }
+
     fn handle_hover(
         &self,
         id: lsp_server::RequestId,
@@ -188,12 +199,7 @@ impl Server {
             Some(document) => document.all(),
             None => {
                 info!("did not find file '{}' in database", &uri);
-                self.connection
-                    .sender
-                    .send(Message::Response(Response::new_ok(
-                        id,
-                        Option::<HoverContents>::None,
-                    )))?;
+                self.response(id, Option::<HoverContents>::None)?;
                 return Ok(());
             }
         };
@@ -210,9 +216,7 @@ impl Server {
             range: Some(node.range),
         });
 
-        self.connection
-            .sender
-            .send(Message::Response(Response::new_ok(id, result)))?;
+        self.response(id, result)?;
         Ok(())
     }
 
@@ -238,12 +242,7 @@ impl Server {
             }
         };
         if !good_position {
-            self.connection
-                .sender
-                .send(Message::Response(Response::new_ok(
-                    id.clone(),
-                    Vec::<CompletionItem>::new(),
-                )))?;
+            self.response(id.clone(), Vec::<CompletionItem>::new())?;
             return Ok(());
         }
 
@@ -282,9 +281,7 @@ impl Server {
             .map(|(label, detail)| CompletionItem::new_simple(label, detail.into()))
             .collect::<Vec<CompletionItem>>();
 
-        self.connection
-            .sender
-            .send(Message::Response(Response::new_ok(id, items)))?;
+        self.response(id, items)?;
         Ok(())
     }
 
@@ -330,12 +327,7 @@ impl Server {
             Some((anchor, range)) => (anchor, range),
             _ => {
                 // No anchor found at position, return empty result.
-                self.connection
-                    .sender
-                    .send(Message::Response(Response::new_ok(
-                        id,
-                        Option::<Vec<Location>>::None,
-                    )))?;
+                self.response(id, Option::<Vec<Location>>::None)?;
                 return Ok(());
             }
         };
@@ -378,9 +370,7 @@ impl Server {
             .chain(declaration.iter().cloned())
             .collect::<Vec<_>>();
 
-        self.connection
-            .sender
-            .send(Message::Response(Response::new_ok(id, result)))?;
+        self.response(id, result)?;
         Ok(())
     }
 
@@ -432,9 +422,7 @@ impl Server {
                 })
             });
 
-        self.connection
-            .sender
-            .send(Message::Response(Response::new_ok(id, result)))?;
+        self.response(id, result)?;
         Ok(())
     }
 
@@ -507,9 +495,7 @@ impl Server {
                         .collect()
                 });
 
-        self.connection
-            .sender
-            .send(Message::Response(Response::new_ok(id, result)))?;
+        self.response(id, result)?;
         Ok(())
     }
 
@@ -746,7 +732,7 @@ mod tests {
             Position, ReferenceContext, ReferenceParams, TextDocumentIdentifier, TextDocumentItem,
             VersionedTextDocumentIdentifier,
         },
-        serde::{Deserialize, Serialize},
+        serde::Deserialize,
         std::cell::Cell,
         textwrap::dedent,
     };
