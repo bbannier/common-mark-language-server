@@ -1,4 +1,4 @@
-name: Rust
+name: stable
 
 on: [push, pull_request]
 
