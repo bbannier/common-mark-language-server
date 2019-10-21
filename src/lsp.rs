@@ -231,7 +231,7 @@ impl Server {
             }
         };
         if !good_position {
-            self.response(id.clone(), Vec::<CompletionItem>::new())?;
+            self.response(id, Vec::<CompletionItem>::new())?;
             return Ok(());
         }
 
@@ -652,7 +652,7 @@ fn pretty(node: &ast::Node) -> String {
     };
 
     match &node.anchor {
-        None => event.to_string(),
+        None => event,
         Some(anchor) => format!("{}\nanchor: {}", event, anchor),
     }
 }
