@@ -12,6 +12,7 @@ Currently supported are
 * jump to definition
 * find references
 * folding
+* document and workspace symbol
 
 ## Installation
 

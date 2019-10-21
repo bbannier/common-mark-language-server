@@ -65,6 +65,8 @@ fn server_capabilities() -> ServerCapabilities {
         references_provider: Some(true),
         definition_provider: Some(true),
         folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+        document_symbol_provider: Some(true),
+        workspace_symbol_provider: Some(true),
         ..Default::default()
     }
 }
@@ -134,9 +136,23 @@ impl Server {
                         }
                         Err(req) => req,
                     };
-                    match request_cast::<request::FoldingRangeRequest>(req) {
+                    let req = match request_cast::<request::FoldingRangeRequest>(req) {
                         Ok((id, params)) => {
                             self.handle_folding_range_request(id, params)?;
+                            continue;
+                        }
+                        Err(req) => req,
+                    };
+                    let req = match request_cast::<request::DocumentSymbolRequest>(req) {
+                        Ok((id, params)) => {
+                            self.handle_document_symbol_request(id, params)?;
+                            continue;
+                        }
+                        Err(req) => req,
+                    };
+                    match request_cast::<request::WorkspaceSymbol>(req) {
+                        Ok((id, params)) => {
+                            self.handle_workspace_symbol(id, params)?;
                             continue;
                         }
                         Err(req) => req,
@@ -482,6 +498,42 @@ impl Server {
         Ok(())
     }
 
+    fn handle_document_symbol_request(
+        &mut self,
+        id: RequestId,
+        params: DocumentSymbolParams,
+    ) -> Result<()> {
+        self.response(
+            id,
+            self.get_symbols(&params.text_document.uri)
+                .map(DocumentSymbolResponse::from),
+        )?;
+        Ok(())
+    }
+
+    fn handle_workspace_symbol(
+        &mut self,
+        id: RequestId,
+        params: WorkspaceSymbolParams,
+    ) -> Result<()> {
+        let result: Vec<_> = self
+            .documents
+            .keys()
+            .map(|uri| match self.get_symbols(uri) {
+                Some(symbols) => symbols
+                    .iter()
+                    .filter(|symbol: &&SymbolInformation| symbol.name.contains(&params.query))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                None => vec![],
+            })
+            .flatten()
+            .collect();
+
+        self.response(id, result)?;
+        Ok(())
+    }
+
     fn handle_did_open_text_document(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
@@ -555,6 +607,27 @@ impl Server {
         }
 
         Ok(())
+    }
+
+    fn get_symbols(&self, uri: &Url) -> Option<Vec<SymbolInformation>> {
+        self.documents.get(uri).map(|document| {
+            document
+                .all()
+                .parsed
+                .nodes()
+                .iter()
+                .filter_map(|node: &ast::Node| match &node.anchor {
+                    Some(_) => Some(SymbolInformation {
+                        name: document.all().document[node.offsets.start..node.offsets.end].into(),
+                        location: Location::new(uri.clone(), node.range),
+                        kind: SymbolKind::String,
+                        deprecated: None,
+                        container_name: None,
+                    }),
+                    None => None,
+                })
+                .collect()
+        })
     }
 }
 
@@ -1231,6 +1304,139 @@ mod tests {
                     kind: Some(FoldingRangeKind::Region)
                 }
             ]),
+        );
+    }
+
+    #[test]
+    fn test_document_symbol_request() {
+        let server = TestServer::new();
+
+        let uri = Url::from_file_path("/foo.md").unwrap();
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                uri.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                    # h1
+                    ## h2
+                    ",
+                ),
+            ),
+        });
+
+        assert_eq!(
+            server.send_request::<request::DocumentSymbolRequest>(DocumentSymbolParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+            }),
+            Some(DocumentSymbolResponse::from(vec![
+                SymbolInformation {
+                    name: "# h1\n".into(),
+                    location: Location::new(
+                        uri.clone(),
+                        Range::new(Position::new(1, 0), Position::new(2, 0))
+                    ),
+                    kind: SymbolKind::String,
+                    deprecated: None,
+                    container_name: None,
+                },
+                SymbolInformation {
+                    name: "## h2\n".into(),
+                    location: Location::new(
+                        uri.clone(),
+                        Range::new(Position::new(2, 0), Position::new(3, 0))
+                    ),
+                    kind: SymbolKind::String,
+                    deprecated: None,
+                    container_name: None,
+                },
+            ])),
+        );
+    }
+
+    #[test]
+    fn test_workspace_symbol_request() {
+        let server = TestServer::new();
+
+        let file1 = Url::from_file_path("/bar.md").unwrap();
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                file1.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                    # bar
+                    ",
+                ),
+            ),
+        });
+
+        let file2 = Url::from_file_path("/foo.md").unwrap();
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                file2.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                    # foo
+                    ",
+                ),
+            ),
+        });
+
+        // An empty query returns all symbols.
+        assert_eq!(
+            server
+                .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
+                    query: "".into(),
+                })
+                .map(|symbols| {
+                    let mut symbols = symbols;
+                    symbols.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+                    symbols
+                }),
+            Some(vec![
+                SymbolInformation {
+                    name: "# bar\n".into(),
+                    location: Location::new(
+                        file1.clone(),
+                        Range::new(Position::new(1, 0), Position::new(2, 0))
+                    ),
+                    kind: SymbolKind::String,
+                    deprecated: None,
+                    container_name: None,
+                },
+                SymbolInformation {
+                    name: "# foo\n".into(),
+                    location: Location::new(
+                        file2.clone(),
+                        Range::new(Position::new(1, 0), Position::new(2, 0))
+                    ),
+                    kind: SymbolKind::String,
+                    deprecated: None,
+                    container_name: None,
+                },
+            ]),
+        );
+
+        // With query matching symbols are returned.
+        assert_eq!(
+            server.send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
+                query: "foo".into(),
+            }),
+            Some(vec![SymbolInformation {
+                name: "# foo\n".into(),
+                location: Location::new(
+                    file2.clone(),
+                    Range::new(Position::new(1, 0), Position::new(2, 0))
+                ),
+                kind: SymbolKind::String,
+                deprecated: None,
+                container_name: None,
+            },]),
         );
     }
 }
