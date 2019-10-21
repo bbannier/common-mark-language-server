@@ -473,13 +473,6 @@ impl Server {
                                     kind: Some(FoldingRangeKind::Region),
                                 })
                             }
-                            Event::Start(_) => Some(FoldingRange {
-                                start_line: node.range.start.line,
-                                start_character: None,
-                                end_line: node.range.end.line,
-                                end_character: None,
-                                kind: Some(FoldingRangeKind::Region),
-                            }),
                             _ => None,
                         })
                         .collect()
@@ -1231,28 +1224,7 @@ mod tests {
                     kind: Some(FoldingRangeKind::Region)
                 },
                 FoldingRange {
-                    start_line: 3,
-                    start_character: None,
-                    end_line: 5,
-                    end_character: None,
-                    kind: Some(FoldingRangeKind::Region)
-                },
-                FoldingRange {
                     start_line: 6,
-                    start_character: None,
-                    end_line: 13,
-                    end_character: None,
-                    kind: Some(FoldingRangeKind::Region)
-                },
-                FoldingRange {
-                    start_line: 8,
-                    start_character: None,
-                    end_line: 10,
-                    end_character: None,
-                    kind: Some(FoldingRangeKind::Region)
-                },
-                FoldingRange {
-                    start_line: 11,
                     start_character: None,
                     end_line: 13,
                     end_character: None,
