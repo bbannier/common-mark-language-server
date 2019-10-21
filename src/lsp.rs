@@ -1131,28 +1131,28 @@ mod tests {
     fn gotodefinition() {
         let server = TestServer::new();
 
-        let bar = Url::from_file_path("/bar.md").unwrap();
+        let file1 = Url::from_file_path("/file1.md").unwrap();
         server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
-                bar.clone(),
+                file1.clone(),
                 "markdown".into(),
                 1,
                 String::from("# bar"),
             ),
         });
 
-        let foo = Url::from_file_path("/foo.md").unwrap();
+        let file2 = Url::from_file_path("/file2.md").unwrap();
         server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
-                foo.clone(),
+                file2.clone(),
                 "markdown".into(),
                 1,
                 dedent(
                     "
                     # h1
                     [ref1](#h1)
-                    [bar](bar.md)
-                    [bar_bar](bar.md/#bar)
+                    [bar](file1.md)
+                    [bar_bar](file1.md/#bar)
                     ",
                 ),
             ),
@@ -1160,33 +1160,33 @@ mod tests {
 
         assert_eq!(
             server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier::new(foo.clone()),
+                TextDocumentIdentifier::new(file2.clone()),
                 Position::new(2, 0),
             )),
             Some(GotoDefinitionResponse::Scalar(Location::new(
-                foo.clone(),
+                file2.clone(),
                 Range::new(Position::new(1, 0), Position::new(2, 0))
             )))
         );
 
         assert_eq!(
             server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier::new(foo.clone()),
+                TextDocumentIdentifier::new(file2.clone()),
                 Position::new(3, 0),
             )),
             Some(GotoDefinitionResponse::Scalar(Location::new(
-                bar.clone(),
+                file1.clone(),
                 Range::new(Position::new(0, 0), Position::new(0, 0))
             )))
         );
 
         assert_eq!(
             server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier::new(foo.clone()),
+                TextDocumentIdentifier::new(file2.clone()),
                 Position::new(4, 0),
             )),
             Some(GotoDefinitionResponse::Scalar(Location::new(
-                bar.clone(),
+                file1.clone(),
                 Range::new(Position::new(0, 0), Position::new(0, 5))
             )))
         );
