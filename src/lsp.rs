@@ -1011,6 +1011,9 @@ mod tests {
 
                     # h2
                     [ref1](#h1)
+
+                    # h3
+                    [ref1](foo.md/#h3)
                     ",
                 ),
             ),
@@ -1101,6 +1104,22 @@ mod tests {
                     Range::new(Position::new(2, 0), Position::new(2, 11))
                 ),
             ])
+        );
+
+        assert_eq!(
+            server.send_request::<request::References>(ReferenceParams {
+                text_document_position: TextDocumentPositionParams {
+                    text_document: TextDocumentIdentifier::new(uri.clone()),
+                    position: Position::new(9, 0),
+                },
+                context: ReferenceContext {
+                    include_declaration: true,
+                },
+            }),
+            Some(vec![Location::new(
+                uri.clone(),
+                Range::new(Position::new(9, 0), Position::new(9, 18))
+            ),])
         );
     }
 
