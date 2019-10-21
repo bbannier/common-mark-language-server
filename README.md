@@ -32,4 +32,9 @@ au User lsp_setup call lsp#register_server({
             \ 'cmd': {server_info->['common-mark-language-server']},
             \ 'whitelist': ['markdown'],
             \ })
+
+autocmd FileType markdown setlocal omnifunc=lsp#complete
+set foldmethod=expr
+            \ foldexpr=lsp#ui#vim#folding#foldexpr()
+            \ foldtext=lsp#ui#vim#folding#foldtext()
 ```
