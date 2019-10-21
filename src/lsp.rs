@@ -654,7 +654,7 @@ fn full_reference(target: (&str, &Url), base: &Url, source: &Url) -> Option<Stri
     Some(if target.1 == source {
         format!("#{}", target.0)
     } else {
-        format!("{}/#{}", make_relative(target.1, base)?, target.0)
+        format!("{}#{}", make_relative(target.1, base)?, target.0)
     })
 }
 
@@ -685,8 +685,8 @@ fn from_reference<'a>(reference: &'a str, from: &Url) -> Option<(Url, Option<&'a
     let (reference, anchor) = {
         let split: VecDeque<&str> = reference.rsplitn(2, '#').collect();
         let (reference, anchor) = match split.len() {
-            1 => (split[0].trim_end_matches('/'), None),
-            2 => (split[1].trim_end_matches('/'), Some(split[0])),
+            1 => (split[0], None),
+            2 => (split[1], Some(split[0])),
             _ => return None,
         };
 
@@ -824,7 +824,7 @@ mod tests {
         );
         assert_eq!(
             full_reference((anchor, &uri), &base, &source),
-            Some("bar.md/#baz".into())
+            Some("bar.md#baz".into())
         );
     }
 
@@ -844,12 +844,12 @@ mod tests {
         );
 
         assert_eq!(
-            from_reference("bar.md/#baz", &base.join("foo.md").unwrap()),
+            from_reference("bar.md#baz", &base.join("foo.md").unwrap()),
             Some((base.join("bar.md").unwrap(), Some("baz")))
         );
 
         assert_eq!(
-            from_reference("../bar.md/#baz", &base.join("foo.md").unwrap()),
+            from_reference("../bar.md#baz", &base.join("foo.md").unwrap()),
             Some((root.join("bar.md").unwrap(), Some("baz")))
         );
     }
@@ -1141,7 +1141,7 @@ mod tests {
                     # h1
                     [ref1](#h1)
                     [bar](file1.md)
-                    [bar_bar](file1.md/#bar)
+                    [bar_bar](file1.md#bar)
                     ",
                 ),
             ),
