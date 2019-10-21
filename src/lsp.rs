@@ -661,7 +661,7 @@ fn full_reference(target: (&str, &Url), base: &Url, source: &Url) -> Option<Stri
     Some(if target.1 == source {
         format!("#{}", target.0)
     } else {
-        format!("#{}/{}", make_relative(target.1, base)?, target.0)
+        format!("{}/#{}", make_relative(target.1, base)?, target.0)
     })
 }
 
@@ -831,7 +831,7 @@ mod tests {
         );
         assert_eq!(
             full_reference((anchor, &uri), &base, &source),
-            Some("#bar.md/baz".into())
+            Some("bar.md/#baz".into())
         );
     }
 
