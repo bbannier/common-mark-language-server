@@ -2,18 +2,7 @@ use {
     crate::ast,
     log::info,
     lsp_server::{Connection, Message, RequestId, Response},
-    lsp_types::{
-        notification::{DidChangeTextDocument, DidOpenTextDocument, Notification},
-        request::{
-            Completion, FoldingRangeRequest, GotoDefinition, GotoDefinitionResponse, HoverRequest,
-            References, Request,
-        },
-        CompletionItem, CompletionOptions, CompletionParams, DidChangeTextDocumentParams,
-        DidOpenTextDocumentParams, FoldingRange, FoldingRangeKind, FoldingRangeParams,
-        FoldingRangeProviderCapability, Hover, HoverContents, InitializeParams, Location,
-        MarkedString, Position, Range, ReferenceParams, ServerCapabilities,
-        TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    },
+    lsp_types::*,
     pulldown_cmark::{Event, Tag},
     serde::Serialize,
     std::{
@@ -31,7 +20,7 @@ fn request_cast<R>(
     req: lsp_server::Request,
 ) -> std::result::Result<(RequestId, R::Params), lsp_server::Request>
 where
-    R: Request,
+    R: request::Request,
     R::Params: serde::de::DeserializeOwned,
 {
     req.extract(R::METHOD)
@@ -41,7 +30,7 @@ fn notification_cast<N>(
     not: lsp_server::Notification,
 ) -> std::result::Result<N::Params, lsp_server::Notification>
 where
-    N: Notification,
+    N: notification::Notification,
     N::Params: serde::de::DeserializeOwned,
 {
     not.extract(N::METHOD)
@@ -117,35 +106,35 @@ impl Server {
                     if self.connection.handle_shutdown(&req)? {
                         return Ok(());
                     }
-                    let req = match request_cast::<HoverRequest>(req) {
+                    let req = match request_cast::<request::HoverRequest>(req) {
                         Ok((id, params)) => {
                             self.handle_hover(id, params)?;
                             continue;
                         }
                         Err(req) => req,
                     };
-                    let req = match request_cast::<Completion>(req) {
+                    let req = match request_cast::<request::Completion>(req) {
                         Ok((id, params)) => {
                             self.handle_completion(id, params)?;
                             continue;
                         }
                         Err(req) => req,
                     };
-                    let req = match request_cast::<References>(req) {
+                    let req = match request_cast::<request::References>(req) {
                         Ok((id, params)) => {
                             self.handle_references(id, params)?;
                             continue;
                         }
                         Err(req) => req,
                     };
-                    let req = match request_cast::<GotoDefinition>(req) {
+                    let req = match request_cast::<request::GotoDefinition>(req) {
                         Ok((id, params)) => {
                             self.handle_gotodefinition(id, params)?;
                             continue;
                         }
                         Err(req) => req,
                     };
-                    match request_cast::<FoldingRangeRequest>(req) {
+                    match request_cast::<request::FoldingRangeRequest>(req) {
                         Ok((id, params)) => {
                             self.handle_folding_range_request(id, params)?;
                             continue;
@@ -155,14 +144,14 @@ impl Server {
                 }
                 Message::Response(_resp) => {}
                 Message::Notification(not) => {
-                    let not = match notification_cast::<DidOpenTextDocument>(not) {
+                    let not = match notification_cast::<notification::DidOpenTextDocument>(not) {
                         Ok(params) => {
                             self.handle_did_open_text_document(params)?;
                             continue;
                         }
                         Err(not) => not,
                     };
-                    match notification_cast::<DidChangeTextDocument>(not) {
+                    match notification_cast::<notification::DidChangeTextDocument>(not) {
                         Ok(params) => {
                             self.handle_did_change_text_document(params)?;
                             continue;
@@ -380,7 +369,7 @@ impl Server {
         id: lsp_server::RequestId,
         params: TextDocumentPositionParams,
     ) -> Result<()> {
-        let result: Option<GotoDefinitionResponse> = self
+        let result: Option<request::GotoDefinitionResponse> = self
             .documents
             .get(&params.text_document.uri)
             .and_then(|document| {
@@ -722,21 +711,7 @@ fn from_reference<'a>(reference: &'a str, from: &Url) -> Option<(Url, Option<&'a
 
 #[cfg(test)]
 mod tests {
-    use {
-        super::*,
-        lsp_server::Connection,
-        lsp_types::{
-            notification::{Exit, Initialized, Notification},
-            request::{Initialize, References, Request, Shutdown},
-            ClientCapabilities, CompletionParams, CompletionResponse, DidChangeTextDocumentParams,
-            DidOpenTextDocumentParams, HoverContents, InitializedParams, Location, MarkedString,
-            Position, ReferenceContext, ReferenceParams, TextDocumentIdentifier, TextDocumentItem,
-            VersionedTextDocumentIdentifier,
-        },
-        serde::Deserialize,
-        std::cell::Cell,
-        textwrap::dedent,
-    };
+    use {super::*, lsp_server::Connection, serde::Deserialize, std::cell::Cell, textwrap::dedent};
 
     struct TestServer {
         _thread: jod_thread::JoinHandle<()>,
@@ -762,7 +737,7 @@ mod tests {
                 req_id,
             };
 
-            server.send_request::<Initialize>(InitializeParams {
+            server.send_request::<request::Initialize>(InitializeParams {
                 capabilities: ClientCapabilities::default(),
                 initialization_options: None,
                 process_id: None,
@@ -772,16 +747,16 @@ mod tests {
                 workspace_folders: None,
             });
 
-            server.send_notification::<Initialized>(InitializedParams {});
+            server.send_notification::<notification::Initialized>(InitializedParams {});
 
             server
         }
 
         fn send_request<R>(&self, params: R::Params) -> R::Result
         where
-            R: Request,
+            R: request::Request,
             R::Params: Serialize,
-            for<'de> <R as Request>::Result: Deserialize<'de>,
+            for<'de> <R as request::Request>::Result: Deserialize<'de>,
         {
             let id = self.req_id.get();
             self.req_id.set(id + 1);
@@ -807,7 +782,7 @@ mod tests {
 
         fn send_notification<N>(&self, params: N::Params)
         where
-            N: Notification,
+            N: notification::Notification,
             N::Params: Serialize,
         {
             let not = lsp_server::Notification::new(N::METHOD.into(), params);
@@ -820,8 +795,8 @@ mod tests {
 
     impl Drop for TestServer {
         fn drop(&mut self) {
-            self.send_request::<Shutdown>(());
-            self.send_notification::<Exit>(());
+            self.send_request::<request::Shutdown>(());
+            self.send_notification::<notification::Exit>(());
         }
     }
 
@@ -895,7 +870,7 @@ mod tests {
         let uri = Url::from_file_path("/foo/bar.md").unwrap();
 
         // Prime the server with a document with a heading.
-        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
                 uri.clone(),
                 "markdown".into(),
@@ -905,7 +880,7 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<HoverRequest>(TextDocumentPositionParams::new(
+            server.send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
                 TextDocumentIdentifier { uri: uri.clone() },
                 Position::new(0, 0)
             ),),
@@ -919,7 +894,7 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<HoverRequest>(TextDocumentPositionParams::new(
+            server.send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
                 TextDocumentIdentifier { uri: uri.clone() },
                 Position::new(0, 2)
             ),),
@@ -933,17 +908,19 @@ mod tests {
         );
 
         // Change the document to contain inline code.
-        server.send_notification::<DidChangeTextDocument>(DidChangeTextDocumentParams {
-            text_document: VersionedTextDocumentIdentifier::new(uri.clone(), 2),
-            content_changes: vec![lsp_types::TextDocumentContentChangeEvent {
-                text: "`int main()`".into(),
-                range: None,
-                range_length: None,
-            }],
-        });
+        server.send_notification::<notification::DidChangeTextDocument>(
+            DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier::new(uri.clone(), 2),
+                content_changes: vec![TextDocumentContentChangeEvent {
+                    text: "`int main()`".into(),
+                    range: None,
+                    range_length: None,
+                }],
+            },
+        );
 
         assert_eq!(
-            server.send_request::<HoverRequest>(TextDocumentPositionParams::new(
+            server.send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
                 TextDocumentIdentifier { uri: uri.clone() },
                 Position::new(0, 3)
             ),),
@@ -962,7 +939,7 @@ mod tests {
         let server = TestServer::new();
 
         let uri = Url::from_file_path("/foo.md").unwrap();
-        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
                 uri.clone(),
                 "markdown".into(),
@@ -977,7 +954,7 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<Completion>(CompletionParams {
+            server.send_request::<request::Completion>(CompletionParams {
                 text_document_position: TextDocumentPositionParams::new(
                     TextDocumentIdentifier::new(uri.clone()),
                     Position::new(2, 12),
@@ -992,7 +969,7 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<Completion>(CompletionParams {
+            server.send_request::<request::Completion>(CompletionParams {
                 text_document_position: TextDocumentPositionParams::new(
                     TextDocumentIdentifier::new(uri.clone()),
                     Position::new(2, 2),
@@ -1004,7 +981,7 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<Completion>(CompletionParams {
+            server.send_request::<request::Completion>(CompletionParams {
                 text_document_position: TextDocumentPositionParams::new(
                     TextDocumentIdentifier::new(uri.clone()),
                     Position::new(1, 0),
@@ -1021,7 +998,7 @@ mod tests {
         let server = TestServer::new();
 
         let uri = Url::from_file_path("/foo.md").unwrap();
-        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
                 uri.clone(),
                 "markdown".into(),
@@ -1040,7 +1017,7 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<References>(ReferenceParams {
+            server.send_request::<request::References>(ReferenceParams {
                 text_document_position: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier::new(uri.clone()),
                     position: Position::new(0, 0),
@@ -1053,7 +1030,7 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<References>(ReferenceParams {
+            server.send_request::<request::References>(ReferenceParams {
                 text_document_position: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier::new(uri.clone()),
                     position: Position::new(1, 0),
@@ -1079,7 +1056,7 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<References>(ReferenceParams {
+            server.send_request::<request::References>(ReferenceParams {
                 text_document_position: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier::new(uri.clone()),
                     position: Position::new(1, 0),
@@ -1101,7 +1078,7 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<References>(ReferenceParams {
+            server.send_request::<request::References>(ReferenceParams {
                 text_document_position: TextDocumentPositionParams {
                     text_document: TextDocumentIdentifier::new(uri.clone()),
                     position: Position::new(2, 7),
@@ -1132,7 +1109,7 @@ mod tests {
         let server = TestServer::new();
 
         let file1 = Url::from_file_path("/file1.md").unwrap();
-        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
                 file1.clone(),
                 "markdown".into(),
@@ -1142,7 +1119,7 @@ mod tests {
         });
 
         let file2 = Url::from_file_path("/file2.md").unwrap();
-        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
                 file2.clone(),
                 "markdown".into(),
@@ -1159,33 +1136,33 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
+            server.send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
                 TextDocumentIdentifier::new(file2.clone()),
                 Position::new(2, 0),
             )),
-            Some(GotoDefinitionResponse::Scalar(Location::new(
+            Some(request::GotoDefinitionResponse::Scalar(Location::new(
                 file2.clone(),
                 Range::new(Position::new(1, 0), Position::new(2, 0))
             )))
         );
 
         assert_eq!(
-            server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
+            server.send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
                 TextDocumentIdentifier::new(file2.clone()),
                 Position::new(3, 0),
             )),
-            Some(GotoDefinitionResponse::Scalar(Location::new(
+            Some(request::GotoDefinitionResponse::Scalar(Location::new(
                 file1.clone(),
                 Range::new(Position::new(0, 0), Position::new(0, 0))
             )))
         );
 
         assert_eq!(
-            server.send_request::<GotoDefinition>(TextDocumentPositionParams::new(
+            server.send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
                 TextDocumentIdentifier::new(file2.clone()),
                 Position::new(4, 0),
             )),
-            Some(GotoDefinitionResponse::Scalar(Location::new(
+            Some(request::GotoDefinitionResponse::Scalar(Location::new(
                 file1.clone(),
                 Range::new(Position::new(0, 0), Position::new(0, 5))
             )))
@@ -1197,7 +1174,7 @@ mod tests {
         let server = TestServer::new();
 
         let uri = Url::from_file_path("/foo.md").unwrap();
-        server.send_notification::<DidOpenTextDocument>(DidOpenTextDocumentParams {
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
             text_document: TextDocumentItem::new(
                 uri.clone(),
                 "markdown".into(),
@@ -1223,7 +1200,7 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<FoldingRangeRequest>(FoldingRangeParams {
+            server.send_request::<request::FoldingRangeRequest>(FoldingRangeParams {
                 text_document: TextDocumentIdentifier::new(uri)
             }),
             Some(vec![
