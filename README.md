@@ -16,7 +16,7 @@ Currently supported are
 
 ## Installation
 
-```{.sh}
+```sh
 cargo install --git https://github.com/bbannier/common-mark-language-server
 ```
 
@@ -27,7 +27,7 @@ cargo install --git https://github.com/bbannier/common-mark-language-server
 If you are using [vim-lsp](https://github.com/prabirshrestha/vim-lsp) add the
 following to your `.vimrc`,
 
-```{.vim}
+```viml
 au User lsp_setup call lsp#register_server({
             \ 'name': 'common-mark',
             \ 'cmd': {server_info->['common-mark-language-server']},
