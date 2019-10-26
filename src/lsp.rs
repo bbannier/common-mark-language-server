@@ -426,7 +426,7 @@ impl Server {
                     })
             })
             .and_then(|dest| {
-                self.get_reference(&params.text_document.uri, dest)
+                self.get_destination(&params.text_document.uri, dest)
                     .map(|location| location.into())
             });
 
@@ -541,7 +541,7 @@ impl Server {
         let text = params.text_document.text;
         let version = params.text_document.version;
 
-        self.update_document(uri, text, Some(version))
+        self.update_document(uri, text, Some(version), true)
     }
 
     fn handle_did_change_text_document(
@@ -557,10 +557,18 @@ impl Server {
 
         let version = params.text_document.version;
 
-        self.update_document(uri, text, version)
+        self.update_document(uri, text, version, true)
     }
 
-    fn update_document(&mut self, uri: Url, text: String, _version: Option<i64>) -> Result<()> {
+    fn update_document(
+        &mut self,
+        uri: Url,
+        text: String,
+        _version: Option<i64>,
+        lint: bool,
+    ) -> Result<()> {
+        // TODO(bbannier): get rid when this is sync and instead trigger e.g., on idle time.
+
         info!("Updating {}", &uri);
 
         #[allow(clippy::redundant_closure)]
@@ -625,10 +633,10 @@ impl Server {
                             vec![Diagnostic::new(
                                 *source_range,
                                 Some(DiagnosticSeverity::Error),
-                                None,            // code
-                                None,            // source
-                                err.to_string(), // message
-                                None,            // related info
+                                None, // code
+                                None, // source
+                                format!("could not read file `{}`: {}", document, err.to_string()), // message
+                                None, // related info
                             )],
                         ),
                     )?;
@@ -636,13 +644,25 @@ impl Server {
                 }
             };
 
-            self.update_document(document.clone(), text, Some(0))?;
+            self.update_document(document.clone(), text, Some(0), false)?;
+        }
+
+        if lint {
+            self.check_references()
+                .iter()
+                .cloned()
+                .map(|(uri, diagnostics)| {
+                    self.notification::<notification::PublishDiagnostics>(
+                        PublishDiagnosticsParams::new(uri, diagnostics),
+                    )
+                })
+                .collect::<Result<Vec<()>>>()?;
         }
 
         Ok(())
     }
 
-    fn get_reference(&self, source: &Url, dest: &str) -> Option<Location> {
+    fn get_destination(&self, source: &Url, dest: &str) -> Option<Location> {
         from_reference(dest, source).and_then(|(uri, anchor)| {
             // Obtain dest node and create result.
             self.documents.get(&uri).and_then(|versioned_document| {
@@ -669,6 +689,53 @@ impl Server {
                     })
             })
         })
+    }
+
+    fn check_references(&self) -> Vec<(Url, Vec<Diagnostic>)> {
+        info!("checking references");
+
+        self.documents
+            .iter()
+            .map(|(uri, versioned_document)| {
+                let diagnostics = versioned_document
+                    .document
+                    .all()
+                    .parsed
+                    .nodes()
+                    .iter()
+                    .filter_map(|node| match &node.data {
+                        Event::Start(Tag::Link(_, dest, _)) => {
+                            // Ignore non-file links for now.
+                            use std::str::FromStr;
+                            if let Ok(dest) = Url::from_str(dest.as_ref()) {
+                                if dest.scheme() != "file" {
+                                    return None;
+                                }
+                            }
+
+                            match self.get_destination(uri, dest) {
+                                // FIXME(bbannier): cache these and only send the same diagnostic once.
+                                None => Some(Diagnostic::new(
+                                    node.range, // source range
+                                    Some(DiagnosticSeverity::Error),
+                                    None, // code
+                                    None, // source
+                                    format!("reference '{}' not found", dest),
+                                    None, // related info
+                                )),
+                                Some(_) => None,
+                            }
+                        }
+                        _ => None,
+                    })
+                    .inspect(|_| {
+                        info!("found invalid reference in `{}`", &uri);
+                    })
+                    .collect::<Vec<_>>();
+
+                (uri.clone(), diagnostics)
+            })
+            .collect()
     }
 
     fn get_symbols(&self, uri: &Url) -> Option<Vec<SymbolInformation>> {
@@ -901,14 +968,19 @@ mod tests {
                 )))
                 .unwrap();
 
-            let response = match self.client.receiver.recv().unwrap() {
-                lsp_server::Message::Response(response) => response,
-                _ => panic!(),
-            }
-            .result
-            .unwrap();
+            loop {
+                let response = match self.client.receiver.recv().unwrap() {
+                    lsp_server::Message::Response(response) => response,
+                    otherwise => {
+                        info!("Dropping message '{:?}'", otherwise);
+                        continue;
+                    }
+                }
+                .result
+                .unwrap();
 
-            serde_json::from_value(response).unwrap()
+                return serde_json::from_value(response).unwrap();
+            }
         }
 
         fn send_notification<N>(&self, params: N::Params)

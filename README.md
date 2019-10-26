@@ -13,6 +13,7 @@ Currently supported are
 * find references
 * folding
 * document and workspace symbol
+* basic broken link linting
 
 ## Installation
 
