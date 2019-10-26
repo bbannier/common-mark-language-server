@@ -41,8 +41,8 @@ rental! {
     use ast::ParsedDocument;
         #[rental(covariant)]
         pub struct Document {
-            document: String,
-            parsed: ParsedDocument<'document>,
+            text: String,
+            parsed: ParsedDocument<'text>,
         }
     }
 }
@@ -239,7 +239,7 @@ impl Server {
                 character >= 2
                     && document
                         .all()
-                        .document
+                        .text
                         .lines()
                         .nth(position.line.try_into()?)
                         .unwrap()[character - 2..character]
@@ -264,7 +264,7 @@ impl Server {
                     .iter()
                     .filter_map(|node| match &node.anchor {
                         Some(anchor) => {
-                            let detail = &document.document[node.offsets.clone()];
+                            let detail = &document.text[node.offsets.clone()];
                             let reference = full_reference(
                                 (&anchor, uri),
                                 &self.root_uri,
@@ -618,7 +618,7 @@ impl Server {
                 .iter()
                 .filter_map(|node: &ast::Node| match &node.anchor {
                     Some(_) => Some(SymbolInformation {
-                        name: document.all().document[node.offsets.start..node.offsets.end].into(),
+                        name: document.all().text[node.offsets.start..node.offsets.end].into(),
                         location: Location::new(uri.clone(), node.range),
                         kind: SymbolKind::String,
                         deprecated: None,
