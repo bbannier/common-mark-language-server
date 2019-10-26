@@ -1079,7 +1079,7 @@ mod tests {
                     [ref1](#h1)
 
                     # h3
-                    [ref1](foo.md/#h3)
+                    [ref1](foo.md#h3)
                     ",
                 ),
             ),
@@ -1184,7 +1184,7 @@ mod tests {
             }),
             Some(vec![Location::new(
                 uri.clone(),
-                Range::new(Position::new(9, 0), Position::new(9, 18))
+                Range::new(Position::new(9, 0), Position::new(9, 17))
             ),])
         );
     }
