@@ -596,7 +596,21 @@ impl Server {
         let document =
             match rentals::Document::try_new(text, |text| ast::ParsedDocument::try_from(text)) {
                 Ok(document) => document,
-                Err(_) => {
+                Err(err) => {
+                    // TODO(bbannier): add a test for parse error notifications.
+                    self.notification::<notification::PublishDiagnostics>(
+                        PublishDiagnosticsParams::new(
+                            uri.clone(),
+                            vec![Diagnostic::new(
+                                Range::new(Position::new(0, 0), Position::new(1, 0)), // source range
+                                Some(DiagnosticSeverity::Error),
+                                None,                                              // code
+                                None,                                              // source
+                                format!("could not parse `{}`: {}", err.1, err.0), // message
+                                None,                                              // related info
+                            )],
+                        ),
+                    )?;
                     return Ok(());
                 }
             };
