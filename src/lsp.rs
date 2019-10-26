@@ -611,13 +611,9 @@ impl Server {
                 Event::Start(Tag::Link(_, dest, _)) => {
                     let (document, _anchor) = from_reference(dest.as_ref(), &uri)?;
 
-                    if uri != document
-                        && !self.documents.contains_key(&document)
-                        && document.scheme() == "file"
-                    {
-                        Some(document)
-                    } else {
-                        None
+                    match document.scheme() {
+                        "file" => Some((document, node.range)),
+                        _ => None,
                     }
                 }
                 _ => None,
@@ -626,19 +622,36 @@ impl Server {
 
         // Insert before handling references to avoid infinite recursion.
         self.documents
-            .insert(uri, VersionedDocument { document, _version });
+            .insert(uri.clone(), VersionedDocument { document, _version });
 
         // FIXME(bbannier): this should really be done async.
-        for document in &documents {
+        for (document, source_range) in &documents {
+            // If the document appeared in the cache it is already tracked by the client.
+            if self.documents.contains_key(document) {
+                continue;
+            }
             let text = match std::fs::read_to_string(document.to_file_path().unwrap()) {
                 Ok(text) => text,
-                Err(_err) => {
-                    // FIXME(bbannier): propagate read failures to caller.
+                Err(err) => {
+                    // TODO(bbannier): add a test for read error notifications.
+                    self.notification::<notification::PublishDiagnostics>(
+                        PublishDiagnosticsParams::new(
+                            uri.clone(),
+                            vec![Diagnostic::new(
+                                *source_range,
+                                Some(DiagnosticSeverity::Error),
+                                None,            // code
+                                None,            // source
+                                err.to_string(), // message
+                                None,            // related info
+                            )],
+                        ),
+                    )?;
                     continue;
                 }
             };
 
-            self.update_document(document.clone(), text, None)?;
+            self.update_document(document.clone(), text, Some(0))?;
         }
 
         Ok(())
