@@ -426,37 +426,8 @@ impl Server {
                     })
             })
             .and_then(|dest| {
-                // Translate reference to uri & anchor.
-                from_reference(dest, &params.text_document.uri)
-            })
-            .and_then(|(uri, anchor)| {
-                // Obtain dest node and create response.
-                self.documents.get(&uri).and_then(|versioned_document| {
-                    versioned_document
-                        .document
-                        .all()
-                        .parsed
-                        .nodes()
-                        .iter()
-                        .find_map(|node| {
-                            if let Some(anchor) = &anchor {
-                                if let Some(node_anchor) = &node.anchor {
-                                    if node_anchor == anchor {
-                                        return Some(Location::new(uri.clone(), node.range).into());
-                                    }
-                                }
-                            } else {
-                                return Some(
-                                    Location::new(
-                                        uri.clone(),
-                                        Range::new(Position::new(0, 0), Position::new(0, 0)),
-                                    )
-                                    .into(),
-                                );
-                            }
-                            None
-                        })
-                })
+                self.get_reference(&params.text_document.uri, dest)
+                    .map(|location| location.into())
             });
 
         self.response(id, result)?;
@@ -669,6 +640,35 @@ impl Server {
         }
 
         Ok(())
+    }
+
+    fn get_reference(&self, source: &Url, dest: &str) -> Option<Location> {
+        from_reference(dest, source).and_then(|(uri, anchor)| {
+            // Obtain dest node and create result.
+            self.documents.get(&uri).and_then(|versioned_document| {
+                versioned_document
+                    .document
+                    .all()
+                    .parsed
+                    .nodes()
+                    .iter()
+                    .find_map(|node| {
+                        if let Some(anchor) = &anchor {
+                            if let Some(node_anchor) = &node.anchor {
+                                if node_anchor == anchor {
+                                    return Some(Location::new(uri.clone(), node.range));
+                                }
+                            }
+                        } else {
+                            return Some(Location::new(
+                                uri.clone(),
+                                Range::new(Position::new(0, 0), Position::new(0, 0)),
+                            ));
+                        }
+                        None
+                    })
+            })
+        })
     }
 
     fn get_symbols(&self, uri: &Url) -> Option<Vec<SymbolInformation>> {
