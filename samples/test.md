@@ -6,6 +6,8 @@ Some text.
 
 See [section 1](#this-is-the-big-section) and also the [other section](#this-is-the-big-section).
 
+[ref](bla.md)
+
 * bullet
 * list
 * with `inline code()`
