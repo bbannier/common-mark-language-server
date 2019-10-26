@@ -77,7 +77,6 @@ fn server_capabilities() -> ServerCapabilities {
 pub fn run_server(connection: Connection) -> Result<()> {
     let server_capabilities = server_capabilities();
     let initialize_params = connection.initialize(serde_json::to_value(server_capabilities)?)?;
-    // FIXME(bbannier): use these.
     let initialize_params: InitializeParams = serde_json::from_value(initialize_params)?;
 
     let cwd = Url::from_file_path(std::env::current_dir()?).ok();
@@ -257,7 +256,6 @@ impl Server {
         }
 
         // For now just complete anchors.
-        // FIXME(bbannier): correctly handle references to other documents.
         let items = self
             .documents
             .iter()
