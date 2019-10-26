@@ -1,7 +1,7 @@
 use {
     crate::ast,
     log::info,
-    lsp_server::{Connection, Message, RequestId, Response},
+    lsp_server::{Connection, Message, Notification, RequestId, Response},
     lsp_types::*,
     pulldown_cmark::{Event, Tag},
     serde::Serialize,
@@ -193,6 +193,20 @@ impl Server {
         self.connection
             .sender
             .send(Message::Response(Response::new_ok(id, response)))
+            .map_err(|err| err.into())
+    }
+
+    fn notification<N>(&self, params: N::Params) -> Result<()>
+    where
+        N: notification::Notification,
+        N::Params: Serialize,
+    {
+        self.connection
+            .sender
+            .send(Message::Notification(Notification::new(
+                N::METHOD.into(),
+                params,
+            )))
             .map_err(|err| err.into())
     }
 
