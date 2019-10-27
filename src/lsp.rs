@@ -98,94 +98,94 @@ pub fn run_server(connection: Connection) -> Result<()> {
         root_uri,
     };
 
-    server.main_loop()
+    main_loop(&mut server)
+}
+
+fn main_loop(server: &mut Server) -> Result<()> {
+    info!("starting example main loop");
+
+    while let Some(msg) = server.connection.receiver.iter().next() {
+        match msg {
+            Message::Request(req) => {
+                if server.connection.handle_shutdown(&req)? {
+                    return Ok(());
+                }
+                let req = match request_cast::<request::HoverRequest>(req) {
+                    Ok((id, params)) => {
+                        server.handle_hover(id, params)?;
+                        continue;
+                    }
+                    Err(req) => req,
+                };
+                let req = match request_cast::<request::Completion>(req) {
+                    Ok((id, params)) => {
+                        server.handle_completion(id, params)?;
+                        continue;
+                    }
+                    Err(req) => req,
+                };
+                let req = match request_cast::<request::References>(req) {
+                    Ok((id, params)) => {
+                        server.handle_references(id, params)?;
+                        continue;
+                    }
+                    Err(req) => req,
+                };
+                let req = match request_cast::<request::GotoDefinition>(req) {
+                    Ok((id, params)) => {
+                        server.handle_gotodefinition(id, params)?;
+                        continue;
+                    }
+                    Err(req) => req,
+                };
+                let req = match request_cast::<request::FoldingRangeRequest>(req) {
+                    Ok((id, params)) => {
+                        server.handle_folding_range_request(id, params)?;
+                        continue;
+                    }
+                    Err(req) => req,
+                };
+                let req = match request_cast::<request::DocumentSymbolRequest>(req) {
+                    Ok((id, params)) => {
+                        server.handle_document_symbol_request(id, params)?;
+                        continue;
+                    }
+                    Err(req) => req,
+                };
+                match request_cast::<request::WorkspaceSymbol>(req) {
+                    Ok((id, params)) => {
+                        server.handle_workspace_symbol(id, params)?;
+                        continue;
+                    }
+                    Err(req) => req,
+                };
+            }
+            Message::Response(_resp) => {}
+            Message::Notification(not) => {
+                let not = match notification_cast::<notification::DidOpenTextDocument>(not) {
+                    Ok(params) => {
+                        server.handle_did_open_text_document(params)?;
+                        continue;
+                    }
+                    Err(not) => not,
+                };
+                match notification_cast::<notification::DidChangeTextDocument>(not) {
+                    Ok(params) => {
+                        server.handle_did_change_text_document(params)?;
+                        continue;
+                    }
+                    Err(not) => not,
+                };
+            }
+        }
+    }
+
+    info!("finished example main loop");
+
+    Ok(())
 }
 
 impl Server {
-    pub fn main_loop(&mut self) -> Result<()> {
-        info!("starting example main loop");
-
-        while let Some(msg) = self.connection.receiver.iter().next() {
-            match msg {
-                Message::Request(req) => {
-                    if self.connection.handle_shutdown(&req)? {
-                        return Ok(());
-                    }
-                    let req = match request_cast::<request::HoverRequest>(req) {
-                        Ok((id, params)) => {
-                            self.handle_hover(id, params)?;
-                            continue;
-                        }
-                        Err(req) => req,
-                    };
-                    let req = match request_cast::<request::Completion>(req) {
-                        Ok((id, params)) => {
-                            self.handle_completion(id, params)?;
-                            continue;
-                        }
-                        Err(req) => req,
-                    };
-                    let req = match request_cast::<request::References>(req) {
-                        Ok((id, params)) => {
-                            self.handle_references(id, params)?;
-                            continue;
-                        }
-                        Err(req) => req,
-                    };
-                    let req = match request_cast::<request::GotoDefinition>(req) {
-                        Ok((id, params)) => {
-                            self.handle_gotodefinition(id, params)?;
-                            continue;
-                        }
-                        Err(req) => req,
-                    };
-                    let req = match request_cast::<request::FoldingRangeRequest>(req) {
-                        Ok((id, params)) => {
-                            self.handle_folding_range_request(id, params)?;
-                            continue;
-                        }
-                        Err(req) => req,
-                    };
-                    let req = match request_cast::<request::DocumentSymbolRequest>(req) {
-                        Ok((id, params)) => {
-                            self.handle_document_symbol_request(id, params)?;
-                            continue;
-                        }
-                        Err(req) => req,
-                    };
-                    match request_cast::<request::WorkspaceSymbol>(req) {
-                        Ok((id, params)) => {
-                            self.handle_workspace_symbol(id, params)?;
-                            continue;
-                        }
-                        Err(req) => req,
-                    };
-                }
-                Message::Response(_resp) => {}
-                Message::Notification(not) => {
-                    let not = match notification_cast::<notification::DidOpenTextDocument>(not) {
-                        Ok(params) => {
-                            self.handle_did_open_text_document(params)?;
-                            continue;
-                        }
-                        Err(not) => not,
-                    };
-                    match notification_cast::<notification::DidChangeTextDocument>(not) {
-                        Ok(params) => {
-                            self.handle_did_change_text_document(params)?;
-                            continue;
-                        }
-                        Err(not) => not,
-                    };
-                }
-            }
-        }
-
-        info!("finished example main loop");
-
-        Ok(())
-    }
-
     fn response<R>(&self, id: RequestId, response: R) -> Result<()>
     where
         R: Serialize,
