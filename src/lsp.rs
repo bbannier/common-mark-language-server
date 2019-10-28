@@ -588,7 +588,7 @@ impl Server {
                     // TODO(bbannier): add a test for parse error notifications.
                     self.notification::<notification::PublishDiagnostics>(
                         PublishDiagnosticsParams::new(
-                            uri.clone(),
+                            uri,
                             vec![Diagnostic::new(
                                 Range::new(Position::new(0, 0), Position::new(1, 0)), // source range
                                 Some(DiagnosticSeverity::Error),
