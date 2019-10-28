@@ -5,7 +5,7 @@ Protocol](https://microsoft.github.io/language-server-protocol/) for Markdown,
 in particular [CommonMark](https://commonmark.org/). While this project might
 be practically useful, at the moment this is more intended as an experiment.
 
-Currently supported are
+The following features are implemented at the moment,
 
 * hover
 * completion for intra-document links
@@ -40,3 +40,19 @@ set foldmethod=expr
             \ foldexpr=lsp#ui#vim#folding#foldexpr()
             \ foldtext=lsp#ui#vim#folding#foldtext()
 ```
+
+## Current limitations
+
+### Single-threaded server implementation
+
+The server implementation at the moment is single-threaded; all work
+(deserializing requests; filesystem I/O; markdown parsing; computing results;
+serializing responses) is perform sequentially. This seems not to lead to too
+bad UX issues for even medium-sized projects, but will eventually become an
+issue.
+
+### No dependency tracking
+
+We do not track dependencies between documents, so after a document update the
+whole document database needs to be linted (links in the updated document or
+referencing the updated document might now be invalid).
