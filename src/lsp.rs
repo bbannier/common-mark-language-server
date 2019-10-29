@@ -626,8 +626,10 @@ impl Server {
         let text = params.text_document.text;
         let version = params.text_document.version;
 
-        // FIXME(bbannier): trigger through tasks.
-        self.update_document(uri, text, Some(version))
+        self.tasks
+            .sender
+            .send(Task::UpdateDocument(uri, text, Some(version)))?;
+        Ok(())
     }
 
     fn handle_did_change_text_document(
@@ -643,7 +645,10 @@ impl Server {
 
         let version = params.text_document.version;
 
-        self.update_document(uri, text, version)
+        self.tasks
+            .sender
+            .send(Task::UpdateDocument(uri, text, version))?;
+        Ok(())
     }
 
     fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
