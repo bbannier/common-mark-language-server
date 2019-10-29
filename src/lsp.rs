@@ -49,7 +49,7 @@ rental! {
 }
 
 struct VersionedDocument {
-    _version: Option<i64>,
+    version: Option<i64>,
     document: rentals::Document,
 }
 
@@ -586,12 +586,21 @@ impl Server {
         &mut self,
         uri: Url,
         text: String,
-        _version: Option<i64>,
+        version: Option<i64>,
         lint: bool,
     ) -> Result<()> {
         // TODO(bbannier): get rid when this is sync and instead trigger e.g., on idle time.
 
-        info!("Updating {}", &uri);
+        let existing_version = self
+            .documents
+            .get(&uri)
+            .and_then(|document| document.version);
+        if existing_version > version {
+            info!("not updating {} as more recent version is known", &uri);
+            return Ok(());
+        }
+
+        info!("updating {}", &uri);
 
         #[allow(clippy::redundant_closure)]
         let document =
@@ -633,11 +642,12 @@ impl Server {
                 }
                 _ => None,
             })
+            .map(|(document, source_range)| (document, source_range))
             .collect::<Vec<_>>();
 
         // Insert before handling references to avoid infinite recursion.
         self.documents
-            .insert(uri.clone(), VersionedDocument { document, _version });
+            .insert(uri.clone(), VersionedDocument { document, version });
 
         // FIXME(bbannier): this should really be done async.
         for (document, source_range) in &documents {
