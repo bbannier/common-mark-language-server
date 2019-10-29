@@ -3,7 +3,7 @@ use {
     log::info,
     lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
     lsp_types::*,
-    pulldown_cmark::{Event, Tag},
+    pulldown_cmark as m,
     serde::Serialize,
     std::{
         collections::{HashMap, VecDeque},
@@ -334,12 +334,12 @@ impl Server {
         let (anchor, anchor_range) = match nodes
             .iter()
             .filter(|node| match &node.data {
-                Event::Start(Tag::Link(_, _, _)) => true,
+                m::Event::Start(m::Tag::Link(_, _, _)) => true,
                 _ => false,
             })
             .min_by_key(|node| node.offsets.len())
             .map(|node| match &node.data {
-                Event::Start(Tag::Link(_, dest, _)) => (
+                m::Event::Start(m::Tag::Link(_, dest, _)) => (
                     String::from(dest.as_ref()).trim_start_matches('#').into(),
                     node.range,
                 ),
@@ -391,7 +391,7 @@ impl Server {
                     .nodes()
                     .iter()
                     .filter_map(move |node| match &node.data {
-                        Event::Start(Tag::Link(_, reference, _))
+                        m::Event::Start(m::Tag::Link(_, reference, _))
                             if reference.as_ref()
                                 == full_reference(
                                     (&anchor, uri),
@@ -428,7 +428,7 @@ impl Server {
                     .at(&params.position)
                     .iter()
                     .find_map(|node| match &node.data {
-                        Event::Start(Tag::Link(_, dest, _)) => Some(dest.as_ref()),
+                        m::Event::Start(m::Tag::Link(_, dest, _)) => Some(dest.as_ref()),
                         _ => None,
                     })
             })
@@ -458,7 +458,7 @@ impl Server {
                         let mut xs = nodes
                             .iter()
                             .filter_map(|node| match &node.data {
-                                Event::Start(Tag::Heading(level)) => Some((level, node)),
+                                m::Event::Start(m::Tag::Heading(level)) => Some((level, node)),
                                 _ => None,
                             })
                             .collect::<Vec<_>>();
@@ -472,7 +472,7 @@ impl Server {
                     nodes
                         .iter()
                         .filter_map(|node| match &node.data {
-                            Event::Start(Tag::Heading(level)) => {
+                            m::Event::Start(m::Tag::Heading(level)) => {
                                 // Translate headings into sections.
 
                                 // We can reuse a heading's start tag, but need to generate a corresponding end tag.
@@ -608,7 +608,7 @@ impl Server {
             .nodes()
             .iter()
             .filter_map(|node: &ast::Node| match &node.data {
-                Event::Start(Tag::Link(_, dest, _)) => {
+                m::Event::Start(m::Tag::Link(_, dest, _)) => {
                     let (document, _anchor) = from_reference(dest.as_ref(), &uri)?;
 
                     match document.scheme() {
@@ -711,7 +711,7 @@ impl Server {
                     .nodes()
                     .iter()
                     .filter_map(|node| match &node.data {
-                        Event::Start(Tag::Link(_, dest, _)) => {
+                        m::Event::Start(m::Tag::Link(_, dest, _)) => {
                             // Ignore non-file links for now.
                             use std::str::FromStr;
                             if let Ok(dest) = Url::from_str(dest.as_ref()) {
@@ -770,27 +770,17 @@ impl Server {
     }
 }
 
-fn pretty_link(
-    link_type: pulldown_cmark::LinkType,
-    dest: &pulldown_cmark::CowStr,
-    title: &pulldown_cmark::CowStr,
-) -> String {
+fn pretty_link(link_type: m::LinkType, dest: &m::CowStr, title: &m::CowStr) -> String {
     let link_type = match link_type {
-        pulldown_cmark::LinkType::Inline => "inline",
-        pulldown_cmark::LinkType::Reference => "reference",
-        pulldown_cmark::LinkType::Collapsed => "collapsed",
-        pulldown_cmark::LinkType::Shortcut => "shortcut",
-        pulldown_cmark::LinkType::Autolink => "autolink",
-        pulldown_cmark::LinkType::Email => "email address",
-        pulldown_cmark::LinkType::CollapsedUnknown => {
-            "collapsed link without destination in document"
-        }
-        pulldown_cmark::LinkType::ReferenceUnknown => {
-            "reference link without destination in document"
-        }
-        pulldown_cmark::LinkType::ShortcutUnknown => {
-            "shortcut link without destination in document"
-        }
+        m::LinkType::Inline => "inline",
+        m::LinkType::Reference => "reference",
+        m::LinkType::Collapsed => "collapsed",
+        m::LinkType::Shortcut => "shortcut",
+        m::LinkType::Autolink => "autolink",
+        m::LinkType::Email => "email address",
+        m::LinkType::CollapsedUnknown => "collapsed link without destination in document",
+        m::LinkType::ReferenceUnknown => "reference link without destination in document",
+        m::LinkType::ShortcutUnknown => "shortcut link without destination in document",
     }
     .to_string();
 
@@ -808,52 +798,52 @@ fn pretty_link(
 fn pretty(node: &ast::Node) -> String {
     let event = &node.data;
     let event = match event {
-        Event::Code(_) => "Inline code".to_string(),
-        Event::Start(tag) | Event::End(tag) => match tag {
-            Tag::Paragraph => "Paragraph".to_string(),
-            Tag::Heading(level) => format!("Heading (level: {})", level),
-            Tag::BlockQuote => "Blockquote".to_string(),
-            Tag::CodeBlock(_) => "Code block".to_string(),
-            Tag::Emphasis => "Emphasis".to_string(),
-            Tag::FootnoteDefinition(_) => "Footnote definition".to_string(),
-            Tag::Image(link_type, dest, title) => {
+        m::Event::Code(_) => "Inline code".to_string(),
+        m::Event::Start(tag) | m::Event::End(tag) => match tag {
+            m::Tag::Paragraph => "Paragraph".to_string(),
+            m::Tag::Heading(level) => format!("Heading (level: {})", level),
+            m::Tag::BlockQuote => "Blockquote".to_string(),
+            m::Tag::CodeBlock(_) => "Code block".to_string(),
+            m::Tag::Emphasis => "Emphasis".to_string(),
+            m::Tag::FootnoteDefinition(_) => "Footnote definition".to_string(),
+            m::Tag::Image(link_type, dest, title) => {
                 format!("Image ({})", pretty_link(*link_type, dest, title))
             }
-            Tag::Link(link_type, dest, title) => {
+            m::Tag::Link(link_type, dest, title) => {
                 format!("Link ({})", pretty_link(*link_type, dest, title))
             }
-            Tag::Item => "Item".to_string(),
-            Tag::List(option) => match option {
+            m::Tag::Item => "Item".to_string(),
+            m::Tag::List(option) => match option {
                 Some(option) => format!("List (first item: {})", option),
                 None => "List".to_string(),
             },
-            Tag::Strikethrough => "Strikethrough".to_string(),
-            Tag::Strong => "Strong".to_string(),
-            Tag::Table(alignment) => format!(
+            m::Tag::Strikethrough => "Strikethrough".to_string(),
+            m::Tag::Strong => "Strong".to_string(),
+            m::Tag::Table(alignment) => format!(
                 "Table (alignment: {})",
                 alignment
                     .iter()
                     .map(|align| match align {
-                        pulldown_cmark::Alignment::None => "none",
-                        pulldown_cmark::Alignment::Center => "center",
-                        pulldown_cmark::Alignment::Left => "left",
-                        pulldown_cmark::Alignment::Right => "right",
+                        m::Alignment::None => "none",
+                        m::Alignment::Center => "center",
+                        m::Alignment::Left => "left",
+                        m::Alignment::Right => "right",
                     }
                     .to_string())
                     .collect::<Vec<String>>()
                     .join(" | ")
             ),
-            Tag::TableCell => "Table cell".to_string(),
-            Tag::TableRow => "Table row".to_string(),
-            Tag::TableHead => "Table head".to_string(),
+            m::Tag::TableCell => "Table cell".to_string(),
+            m::Tag::TableRow => "Table row".to_string(),
+            m::Tag::TableHead => "Table head".to_string(),
         },
-        Event::FootnoteReference(_) => "Footnote reference".to_string(),
-        Event::SoftBreak => "Soft break".to_string(),
-        Event::HardBreak => "Hard break".to_string(),
-        Event::Html(_) => "Html".to_string(),
-        Event::Rule => "Rule".to_string(),
-        Event::TaskListMarker(_) => "Task list marker".to_string(),
-        Event::Text(_) => "Text".to_string(),
+        m::Event::FootnoteReference(_) => "Footnote reference".to_string(),
+        m::Event::SoftBreak => "Soft break".to_string(),
+        m::Event::HardBreak => "Hard break".to_string(),
+        m::Event::Html(_) => "Html".to_string(),
+        m::Event::Rule => "Rule".to_string(),
+        m::Event::TaskListMarker(_) => "Task list marker".to_string(),
+        m::Event::Text(_) => "Text".to_string(),
     };
 
     match &node.anchor {
