@@ -1,7 +1,7 @@
 use {
     crate::ast,
     log::info,
-    lsp_server::{Connection, Message, Notification, RequestId, Response},
+    lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
     lsp_types::*,
     pulldown_cmark::{Event, Tag},
     serde::Serialize,
@@ -112,77 +112,82 @@ fn main_loop(server: Server) -> Result<()> {
                 if server.connection.handle_shutdown(&req)? {
                     return Ok(());
                 }
-                let req = match request_cast::<request::HoverRequest>(req) {
-                    Ok((id, params)) => {
-                        server.handle_hover(id, params)?;
-                        continue;
-                    }
-                    Err(req) => req,
-                };
-                let req = match request_cast::<request::Completion>(req) {
-                    Ok((id, params)) => {
-                        server.handle_completion(id, params)?;
-                        continue;
-                    }
-                    Err(req) => req,
-                };
-                let req = match request_cast::<request::References>(req) {
-                    Ok((id, params)) => {
-                        server.handle_references(id, params)?;
-                        continue;
-                    }
-                    Err(req) => req,
-                };
-                let req = match request_cast::<request::GotoDefinition>(req) {
-                    Ok((id, params)) => {
-                        server.handle_gotodefinition(id, params)?;
-                        continue;
-                    }
-                    Err(req) => req,
-                };
-                let req = match request_cast::<request::FoldingRangeRequest>(req) {
-                    Ok((id, params)) => {
-                        server.handle_folding_range_request(id, params)?;
-                        continue;
-                    }
-                    Err(req) => req,
-                };
-                let req = match request_cast::<request::DocumentSymbolRequest>(req) {
-                    Ok((id, params)) => {
-                        server.handle_document_symbol_request(id, params)?;
-                        continue;
-                    }
-                    Err(req) => req,
-                };
-                match request_cast::<request::WorkspaceSymbol>(req) {
-                    Ok((id, params)) => {
-                        server.handle_workspace_symbol(id, params)?;
-                        continue;
-                    }
-                    Err(req) => req,
-                };
+
+                on_request(req, &mut server)?;
+                continue;
+            }
+            Message::Notification(not) => {
+                on_notification(not, &mut server)?;
+                continue;
             }
             Message::Response(_resp) => {}
-            Message::Notification(not) => {
-                let not = match notification_cast::<notification::DidOpenTextDocument>(not) {
-                    Ok(params) => {
-                        server.handle_did_open_text_document(params)?;
-                        continue;
-                    }
-                    Err(not) => not,
-                };
-                match notification_cast::<notification::DidChangeTextDocument>(not) {
-                    Ok(params) => {
-                        server.handle_did_change_text_document(params)?;
-                        continue;
-                    }
-                    Err(not) => not,
-                };
-            }
         }
     }
 
     info!("finished example main loop");
+
+    Ok(())
+}
+
+fn on_request(req: Request, server: &mut Server) -> Result<()> {
+    let req = match request_cast::<request::HoverRequest>(req) {
+        Ok((id, params)) => {
+            return server.handle_hover(id, params);
+        }
+        Err(req) => req,
+    };
+    let req = match request_cast::<request::Completion>(req) {
+        Ok((id, params)) => {
+            return server.handle_completion(id, params);
+        }
+        Err(req) => req,
+    };
+    let req = match request_cast::<request::References>(req) {
+        Ok((id, params)) => {
+            return server.handle_references(id, params);
+        }
+        Err(req) => req,
+    };
+    let req = match request_cast::<request::GotoDefinition>(req) {
+        Ok((id, params)) => {
+            return server.handle_gotodefinition(id, params);
+        }
+        Err(req) => req,
+    };
+    let req = match request_cast::<request::FoldingRangeRequest>(req) {
+        Ok((id, params)) => {
+            return server.handle_folding_range_request(id, params);
+        }
+        Err(req) => req,
+    };
+    let req = match request_cast::<request::DocumentSymbolRequest>(req) {
+        Ok((id, params)) => {
+            return server.handle_document_symbol_request(id, params);
+        }
+        Err(req) => req,
+    };
+    match request_cast::<request::WorkspaceSymbol>(req) {
+        Ok((id, params)) => {
+            return server.handle_workspace_symbol(id, params);
+        }
+        Err(req) => req,
+    };
+    Ok(())
+}
+
+fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
+    let not = match notification_cast::<notification::DidOpenTextDocument>(not) {
+        Ok(params) => {
+            return server.handle_did_open_text_document(params);
+        }
+        Err(not) => not,
+    };
+    match notification_cast::<notification::DidChangeTextDocument>(not) {
+        Ok(params) => {
+            return server.handle_did_change_text_document(params);
+        }
+        Err(not) => not,
+    };
 
     Ok(())
 }
