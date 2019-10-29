@@ -107,7 +107,7 @@ enum Event {
 }
 
 fn main_loop(server: Server) -> Result<()> {
-    info!("starting example main loop");
+    info!("starting main loop");
 
     let mut server = server;
 
@@ -139,7 +139,7 @@ fn main_loop(server: Server) -> Result<()> {
         }
     }
 
-    info!("finished example main loop");
+    info!("finished main loop");
 
     Ok(())
 }
