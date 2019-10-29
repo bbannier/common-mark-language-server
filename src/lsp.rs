@@ -285,6 +285,10 @@ impl Server {
             .map_err(|err| err.into())
     }
 
+    fn add_task(&mut self, task: Task) -> Result<()> {
+        self.tasks.sender.send(task)?;
+        Ok(())
+    }
 
     fn handle_status_request(&mut self, id: lsp_server::RequestId) -> Result<()> {
         self.response(
@@ -626,10 +630,7 @@ impl Server {
         let text = params.text_document.text;
         let version = params.text_document.version;
 
-        self.tasks
-            .sender
-            .send(Task::UpdateDocument(uri, text, Some(version)))?;
-        Ok(())
+        self.add_task(Task::UpdateDocument(uri, text, Some(version)))
     }
 
     fn handle_did_change_text_document(
@@ -645,10 +646,7 @@ impl Server {
 
         let version = params.text_document.version;
 
-        self.tasks
-            .sender
-            .send(Task::UpdateDocument(uri, text, version))?;
-        Ok(())
+        self.add_task(Task::UpdateDocument(uri, text, version))
     }
 
     fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
@@ -706,9 +704,7 @@ impl Server {
                 _ => None,
             })
             .map(|(document, source_range)| {
-                self.tasks
-                    .sender
-                    .send(Task::LoadFile(document, (uri.clone(), source_range)))
+                self.add_task(Task::LoadFile(document, (uri.clone(), source_range)))
                     .ok();
             })
             .collect::<Vec<_>>();
@@ -721,9 +717,7 @@ impl Server {
         // FIXME(bbannier): this could be tracked with a global `dirty` flag.
         // We could e.g., set a per-file `updating` flag and have this function
         // dispatch to itself until no file is `updating` anymore.
-        self.tasks.sender.send(Task::RunLint)?;
-
-        Ok(())
+        self.add_task(Task::RunLint)
     }
 
     fn load_file(&mut self, uri: Url, source: (Url, Range)) -> Result<()> {
@@ -755,11 +749,7 @@ impl Server {
             }
         };
 
-        // FIXME(bbannier): introduce `add_task` helper.
-        self.tasks
-            .sender
-            .send(Task::UpdateDocument(uri, document, None))?;
-        Ok(())
+        self.add_task(Task::UpdateDocument(uri, document, None))
     }
 
     fn get_destination(&self, source: &Url, dest: &str) -> Option<Location> {
