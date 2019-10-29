@@ -1,6 +1,6 @@
 use {
     crate::ast,
-    crossbeam_channel::{select, RecvError},
+    crossbeam_channel::{select, Receiver, RecvError, Sender},
     log::info,
     lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
     lsp_types::*,
@@ -53,8 +53,34 @@ struct VersionedDocument {
     document: rentals::Document,
 }
 
+// TODO(bbannier): consider addressing this linter issue.
+#[allow(clippy::large_enum_variant)]
+enum Task {
+    LoadFile(Url, (Url, Range)),
+    UpdateDocument(Url, String, Option<i64>),
+    RunLint,
+}
+
+enum Event {
+    Api(lsp_server::Message),
+    Task(Task),
+}
+
+struct Tasks {
+    sender: Sender<Task>,
+    receiver: Receiver<Task>,
+}
+
+impl Tasks {
+    fn new() -> Tasks {
+        let (sender, receiver) = crossbeam_channel::unbounded();
+        Tasks { sender, receiver }
+    }
+}
+
 pub struct Server {
     connection: Connection,
+    tasks: Tasks,
     documents: HashMap<Url, VersionedDocument>,
     root_uri: Url,
 }
@@ -93,17 +119,16 @@ pub fn run_server(connection: Connection) -> Result<()> {
         .root_uri
         .unwrap_or_else(|| root_path.unwrap_or_else(|| cwd.expect("could not determie root_uri")));
 
+    let tasks = Tasks::new();
+
     let server = Server {
         connection,
+        tasks,
         documents: HashMap::new(),
         root_uri,
     };
 
     main_loop(server)
-}
-
-enum Event {
-    Api(lsp_server::Message),
 }
 
 fn main_loop(server: Server) -> Result<()> {
@@ -117,25 +142,34 @@ fn main_loop(server: Server) -> Result<()> {
             recv(server.connection.receiver) -> msg => match msg {
                 Ok(msg) => Event::Api(msg),
                 Err(RecvError) => return Err("client exited without shutdown".into()),
+            },
+            recv(server.tasks.receiver) -> task => match task {
+                Ok(task) => Event::Task(task),
+                Err(RecvError) => continue,
             }
         };
 
-        use Event::Api;
-
         match event {
-            Api(Message::Request(req)) => {
-                if server.connection.handle_shutdown(&req)? {
-                    break;
-                }
+            Event::Api(api) => match api {
+                Message::Request(req) => {
+                    if server.connection.handle_shutdown(&req)? {
+                        break;
+                    }
 
-                on_request(req, &mut server)?;
-                continue;
-            }
-            Api(Message::Notification(not)) => {
-                on_notification(not, &mut server)?;
-                continue;
-            }
-            Api(Message::Response(_resp)) => {}
+                    on_request(req, &mut server)?;
+                }
+                Message::Notification(not) => {
+                    on_notification(not, &mut server)?;
+                }
+                Message::Response(_resp) => {}
+            },
+            Event::Task(task) => match task {
+                Task::LoadFile(uri, source) => server.load_file(uri.clone(), source)?,
+                Task::UpdateDocument(uri, document, version) => {
+                    server.update_document(uri, document, version)?
+                }
+                Task::RunLint => server.run_lint()?,
+            },
         }
     }
 
@@ -563,7 +597,8 @@ impl Server {
         let text = params.text_document.text;
         let version = params.text_document.version;
 
-        self.update_document(uri, text, Some(version), true)
+        // FIXME(bbannier): trigger through tasks.
+        self.update_document(uri, text, Some(version))
     }
 
     fn handle_did_change_text_document(
@@ -579,16 +614,10 @@ impl Server {
 
         let version = params.text_document.version;
 
-        self.update_document(uri, text, version, true)
+        self.update_document(uri, text, version)
     }
 
-    fn update_document(
-        &mut self,
-        uri: Url,
-        text: String,
-        version: Option<i64>,
-        lint: bool,
-    ) -> Result<()> {
+    fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
         // TODO(bbannier): get rid when this is sync and instead trigger e.g., on idle time.
 
         let existing_version = self
@@ -625,8 +654,8 @@ impl Server {
                 }
             };
 
-        // Discover other documents we should parse.
-        let documents = document
+        // Discover other documents we should parse and schedule them for parsing.
+        let _dependencies = document
             .all()
             .parsed
             .nodes()
@@ -642,55 +671,60 @@ impl Server {
                 }
                 _ => None,
             })
-            .map(|(document, source_range)| (document, source_range))
+            .map(|(document, source_range)| {
+                self.tasks
+                    .sender
+                    .send(Task::LoadFile(document, (uri.clone(), source_range)))
+                    .ok();
+            })
             .collect::<Vec<_>>();
 
-        // Insert before handling references to avoid infinite recursion.
         self.documents
-            .insert(uri.clone(), VersionedDocument { document, version });
+            .insert(uri, VersionedDocument { document, version });
 
-        // FIXME(bbannier): this should really be done async.
-        for (document, source_range) in &documents {
-            // If the document appeared in the cache it is already tracked by the client.
-            if self.documents.contains_key(document) {
-                continue;
+        // Schedule linter run.
+        //
+        // FIXME(bbannier): this could be tracked with a global `dirty` flag.
+        // We could e.g., set a per-file `updating` flag and have this function
+        // dispatch to itself until no file is `updating` anymore.
+        self.tasks.sender.send(Task::RunLint)?;
+
+        Ok(())
+    }
+
+    fn load_file(&mut self, uri: Url, source: (Url, Range)) -> Result<()> {
+        // If the document appeared in the cache it is already tracked by the client.
+        if self.documents.contains_key(&uri) {
+            return Ok(());
+        }
+
+        let document = match std::fs::read_to_string(uri.to_file_path().unwrap()) {
+            Ok(text) => text,
+            Err(err) => {
+                // TODO(bbannier): add a test for read error notifications.
+                self.notification::<notification::PublishDiagnostics>(
+                    // TODO(bbannier): collect all diagnostics globally and push them out at once.
+                    PublishDiagnosticsParams::new(
+                        source.0,
+                        vec![Diagnostic::new(
+                            source.1,
+                            Some(DiagnosticSeverity::Error),
+                            None, // code
+                            None, // source
+                            format!("could not read file `{}`: {}", uri, err.to_string()), // message
+                            None, // related info
+                        )],
+                    ),
+                )?;
+
+                return Ok(());
             }
-            let text = match std::fs::read_to_string(document.to_file_path().unwrap()) {
-                Ok(text) => text,
-                Err(err) => {
-                    // TODO(bbannier): add a test for read error notifications.
-                    self.notification::<notification::PublishDiagnostics>(
-                        PublishDiagnosticsParams::new(
-                            uri.clone(),
-                            vec![Diagnostic::new(
-                                *source_range,
-                                Some(DiagnosticSeverity::Error),
-                                None, // code
-                                None, // source
-                                format!("could not read file `{}`: {}", document, err.to_string()), // message
-                                None, // related info
-                            )],
-                        ),
-                    )?;
-                    continue;
-                }
-            };
+        };
 
-            self.update_document(document.clone(), text, Some(0), false)?;
-        }
-
-        if lint {
-            self.check_references()
-                .iter()
-                .cloned()
-                .map(|(uri, diagnostics)| {
-                    self.notification::<notification::PublishDiagnostics>(
-                        PublishDiagnosticsParams::new(uri, diagnostics),
-                    )
-                })
-                .collect::<Result<Vec<()>>>()?;
-        }
-
+        // FIXME(bbannier): introduce `add_task` helper.
+        self.tasks
+            .sender
+            .send(Task::UpdateDocument(uri, document, None))?;
         Ok(())
     }
 
@@ -721,6 +755,20 @@ impl Server {
                     })
             })
         })
+    }
+
+    fn run_lint(&mut self) -> Result<()> {
+        self.check_references()
+            .iter()
+            .cloned()
+            .map(|(uri, diagnostics)| {
+                self.notification::<notification::PublishDiagnostics>(
+                    PublishDiagnosticsParams::new(uri, diagnostics),
+                )
+            })
+            .collect::<Result<Vec<()>>>()?;
+
+        Ok(())
     }
 
     fn check_references(&self) -> Vec<(Url, Vec<Diagnostic>)> {
