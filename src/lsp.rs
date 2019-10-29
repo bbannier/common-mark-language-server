@@ -1,5 +1,6 @@
 use {
     crate::ast,
+    crossbeam_channel::{select, RecvError},
     log::info,
     lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
     lsp_types::*,
@@ -101,26 +102,40 @@ pub fn run_server(connection: Connection) -> Result<()> {
     main_loop(server)
 }
 
+enum Event {
+    Api(lsp_server::Message),
+}
+
 fn main_loop(server: Server) -> Result<()> {
     info!("starting example main loop");
 
     let mut server = server;
 
-    while let Some(msg) = server.connection.receiver.iter().next() {
-        match msg {
-            Message::Request(req) => {
+    loop {
+        #[allow(clippy::drop_copy, clippy::zero_ptr)]
+        let event = select! {
+            recv(server.connection.receiver) -> msg => match msg {
+                Ok(msg) => Event::Api(msg),
+                Err(RecvError) => return Err("client exited without shutdown".into()),
+            }
+        };
+
+        use Event::Api;
+
+        match event {
+            Api(Message::Request(req)) => {
                 if server.connection.handle_shutdown(&req)? {
-                    return Ok(());
+                    break;
                 }
 
                 on_request(req, &mut server)?;
                 continue;
             }
-            Message::Notification(not) => {
+            Api(Message::Notification(not)) => {
                 on_notification(not, &mut server)?;
                 continue;
             }
-            Message::Response(_resp) => {}
+            Api(Message::Response(_resp)) => {}
         }
     }
 
