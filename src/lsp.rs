@@ -54,11 +54,9 @@ struct VersionedDocument {
     updating: bool,
 }
 
-// TODO(bbannier): consider addressing this linter issue.
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum Task {
-    LoadFile(Url, (Url, Range)),
+    LoadFile(Box<(Url, (Url, Range))>),
     UpdateDocument(Url, String, Option<i64>),
     RunLint,
 }
@@ -182,7 +180,7 @@ fn main_loop(server: Server) -> Result<()> {
                 Message::Response(_resp) => {}
             },
             Event::Task(task) => match task {
-                Task::LoadFile(uri, source) => server.load_file(uri.clone(), source)?,
+                Task::LoadFile(uri_source) => server.load_file(uri_source.0, uri_source.1)?,
                 Task::UpdateDocument(uri, document, version) => {
                     server.update_document(uri, document, version)?
                 }
@@ -720,8 +718,11 @@ impl Server {
                 _ => None,
             })
             .map(|(document, source_range)| {
-                self.add_task(Task::LoadFile(document, (uri.clone(), source_range)))
-                    .ok();
+                self.add_task(Task::LoadFile(Box::new((
+                    document,
+                    (uri.clone(), source_range),
+                ))))
+                .ok();
             })
             .collect::<Vec<_>>();
 
