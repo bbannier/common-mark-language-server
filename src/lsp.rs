@@ -51,6 +51,7 @@ rental! {
 struct VersionedDocument {
     version: Option<i64>,
     document: rentals::Document,
+    updating: bool,
 }
 
 // TODO(bbannier): consider addressing this linter issue.
@@ -637,6 +638,10 @@ impl Server {
         let text = params.text_document.text;
         let version = params.text_document.version;
 
+        if let Some(document) = self.documents.get_mut(&uri) {
+            document.updating = true;
+        }
+
         self.add_task(Task::UpdateDocument(uri, text, Some(version)))
     }
 
@@ -652,6 +657,10 @@ impl Server {
             .text;
 
         let version = params.text_document.version;
+
+        if let Some(document) = self.documents.get_mut(&uri) {
+            document.updating = true;
+        }
 
         self.add_task(Task::UpdateDocument(uri, text, version))
     }
@@ -716,14 +725,16 @@ impl Server {
             })
             .collect::<Vec<_>>();
 
-        self.documents
-            .insert(uri, VersionedDocument { document, version });
+        self.documents.insert(
+            uri,
+            VersionedDocument {
+                document,
+                version,
+                updating: false,
+            },
+        );
 
         // Schedule linter run.
-        //
-        // FIXME(bbannier): this could be tracked with a global `dirty` flag.
-        // We could e.g., set a per-file `updating` flag and have this function
-        // dispatch to itself until no file is `updating` anymore.
         self.add_task(Task::RunLint)
     }
 
@@ -756,6 +767,7 @@ impl Server {
             }
         };
 
+        // This document does not exist and cannot be `updating`.
         self.add_task(Task::UpdateDocument(uri, document, None))
     }
 
@@ -789,6 +801,11 @@ impl Server {
     }
 
     fn run_lint(&mut self) -> Result<()> {
+        if self.documents.iter().any(|(_, document)| document.updating) {
+            debug!("documents are still updating, defering linting");
+            return self.add_task(Task::RunLint);
+        }
+
         self.check_references()
             .iter()
             .cloned()
