@@ -664,8 +664,6 @@ impl Server {
     }
 
     fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
-        // TODO(bbannier): get rid when this is sync and instead trigger e.g., on idle time.
-
         let existing_version = self
             .documents
             .get(&uri)
