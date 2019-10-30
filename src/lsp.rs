@@ -5,7 +5,7 @@ use {
     lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
     lsp_types::*,
     pulldown_cmark as m,
-    serde::Serialize,
+    serde::{Deserialize, Serialize},
     std::{
         collections::{HashMap, VecDeque},
         convert::{TryFrom, TryInto},
@@ -83,6 +83,19 @@ pub struct Server {
     tasks: Tasks,
     documents: HashMap<Url, VersionedDocument>,
     root_uri: Url,
+}
+
+struct StatusRequest;
+
+#[derive(Debug, Deserialize, Serialize)]
+struct StatusResponse {
+    is_idle: bool,
+}
+
+impl request::Request for StatusRequest {
+    type Params = ();
+    type Result = StatusResponse;
+    const METHOD: &'static str = "common-mark-language-server/status";
 }
 
 fn server_capabilities() -> ServerCapabilities {
@@ -215,9 +228,15 @@ fn on_request(req: Request, server: &mut Server) -> Result<()> {
         }
         Err(req) => req,
     };
-    match request_cast::<request::WorkspaceSymbol>(req) {
+    let req = match request_cast::<request::WorkspaceSymbol>(req) {
         Ok((id, params)) => {
             return server.handle_workspace_symbol(id, params);
+        }
+        Err(req) => req,
+    };
+    match request_cast::<StatusRequest>(req) {
+        Ok((id, _)) => {
+            return server.handle_status_request(id);
         }
         Err(req) => req,
     };
@@ -264,6 +283,16 @@ impl Server {
                 params,
             )))
             .map_err(|err| err.into())
+    }
+
+
+    fn handle_status_request(&mut self, id: lsp_server::RequestId) -> Result<()> {
+        self.response(
+            id,
+            StatusResponse {
+                is_idle: self.tasks.receiver.is_empty(),
+            },
+        )
     }
 
     fn handle_hover(
@@ -979,7 +1008,15 @@ fn from_reference<'a>(reference: &'a str, from: &Url) -> Option<(Url, Option<&'a
 
 #[cfg(test)]
 mod tests {
-    use {super::*, lsp_server::Connection, serde::Deserialize, std::cell::Cell, textwrap::dedent};
+    use {
+        super::*,
+        crossbeam_channel::RecvError,
+        log::debug,
+        lsp_server::Connection,
+        serde::Deserialize,
+        std::{cell::Cell, thread::sleep, time},
+        textwrap::dedent,
+    };
 
     struct TestServer {
         _thread: jod_thread::JoinHandle<()>,
@@ -989,6 +1026,9 @@ mod tests {
 
     impl TestServer {
         fn new() -> TestServer {
+            // Set up logging. This might fail if another test thread already set up logging.
+            let _ = flexi_logger::Logger::with_env().start();
+
             let (connection, client) = Connection::memory();
             let _thread = jod_thread::Builder::new()
                 .name("test server".to_string())
@@ -1005,22 +1045,24 @@ mod tests {
                 req_id,
             };
 
-            server.send_request::<request::Initialize>(InitializeParams {
-                capabilities: ClientCapabilities::default(),
-                initialization_options: None,
-                process_id: None,
-                root_path: None,
-                root_uri: None,
-                trace: None,
-                workspace_folders: None,
-            });
+            server
+                .send_request::<request::Initialize>(InitializeParams {
+                    capabilities: ClientCapabilities::default(),
+                    initialization_options: None,
+                    process_id: None,
+                    root_path: None,
+                    root_uri: None,
+                    trace: None,
+                    workspace_folders: None,
+                })
+                .unwrap();
 
             server.send_notification::<notification::Initialized>(InitializedParams {});
 
             server
         }
 
-        fn send_request<R>(&self, params: R::Params) -> R::Result
+        fn send_request<R>(&self, params: R::Params) -> Result<R::Result>
         where
             R: request::Request,
             R::Params: Serialize,
@@ -1035,11 +1077,19 @@ mod tests {
                     id.into(),
                     R::METHOD.into(),
                     params,
-                )))
-                .unwrap();
+                )))?;
 
             loop {
-                let response = match self.client.receiver.recv().unwrap() {
+                let response = match self
+                    .client
+                    .receiver
+                    .recv_timeout(time::Duration::from_millis(10))
+                {
+                    Ok(response) => response,
+                    Err(err) => return Err(err.into()),
+                };
+
+                let response = match response {
                     lsp_server::Message::Response(response) => response,
                     otherwise => {
                         info!("Dropping message '{:?}'", otherwise);
@@ -1049,7 +1099,7 @@ mod tests {
                 .result
                 .unwrap();
 
-                return serde_json::from_value(response).unwrap();
+                return Ok(serde_json::from_value(response).unwrap());
             }
         }
 
@@ -1063,12 +1113,34 @@ mod tests {
                 .sender
                 .send(lsp_server::Message::Notification(not))
                 .unwrap();
+
+            // Loop until the server has processed the notification.
+            loop {
+                debug!("Getting server status");
+
+                match self.send_request::<StatusRequest>(()) {
+                    Ok(status) => {
+                        debug!("Server status is {:?}", status);
+                        if status.is_idle {
+                            break;
+                        }
+                    }
+                    // We might receive an `RecvError` if no message is available, yet, in which
+                    // case we continue. For other errors like e.g., `SendError` we should break;
+                    Err(err) => match err.is::<RecvError>() {
+                        true => continue,
+                        _ => break,
+                    },
+                };
+
+                sleep(time::Duration::from_millis(10));
+            }
         }
     }
 
     impl Drop for TestServer {
         fn drop(&mut self) {
-            self.send_request::<request::Shutdown>(());
+            self.send_request::<request::Shutdown>(()).unwrap();
             self.send_notification::<notification::Exit>(());
         }
     }
@@ -1153,10 +1225,12 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier { uri: uri.clone() },
-                Position::new(0, 0)
-            ),),
+            server
+                .send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
+                    TextDocumentIdentifier { uri: uri.clone() },
+                    Position::new(0, 0)
+                ))
+                .unwrap(),
             Some(Hover {
                 contents: HoverContents::Array(vec![MarkedString::from_markdown(
                     "Heading (level: 1)\nanchor: heading".to_string()
@@ -1167,10 +1241,12 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier { uri: uri.clone() },
-                Position::new(0, 2)
-            ),),
+            server
+                .send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
+                    TextDocumentIdentifier { uri: uri.clone() },
+                    Position::new(0, 2)
+                ))
+                .unwrap(),
             Some(Hover {
                 contents: HoverContents::Array(vec![MarkedString::from_markdown(
                     "Text".to_string()
@@ -1193,10 +1269,12 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier { uri: uri.clone() },
-                Position::new(0, 3)
-            ),),
+            server
+                .send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
+                    TextDocumentIdentifier { uri: uri.clone() },
+                    Position::new(0, 3)
+                ))
+                .unwrap(),
             Some(Hover {
                 contents: HoverContents::Array(vec![MarkedString::from_markdown(
                     "Inline code".to_string()
@@ -1227,13 +1305,15 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<request::Completion>(CompletionParams {
-                text_document_position: TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(uri.clone()),
-                    Position::new(2, 12),
-                ),
-                context: None,
-            }),
+            server
+                .send_request::<request::Completion>(CompletionParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(uri.clone()),
+                        Position::new(2, 12),
+                    ),
+                    context: None,
+                })
+                .unwrap(),
             Some(CompletionResponse::from(vec![CompletionItem::new_simple(
                 "#heading".into(),
                 "# heading\n".into()
@@ -1242,25 +1322,29 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<request::Completion>(CompletionParams {
-                text_document_position: TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(uri.clone()),
-                    Position::new(2, 2),
-                ),
-                context: None,
-            }),
+            server
+                .send_request::<request::Completion>(CompletionParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(uri.clone()),
+                        Position::new(2, 2),
+                    ),
+                    context: None,
+                })
+                .unwrap(),
             Some(CompletionResponse::from(vec![])),
             "Completion in the middle of reference should not complete anything",
         );
 
         assert_eq!(
-            server.send_request::<request::Completion>(CompletionParams {
-                text_document_position: TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(uri.clone()),
-                    Position::new(1, 0),
-                ),
-                context: None,
-            }),
+            server
+                .send_request::<request::Completion>(CompletionParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(uri.clone()),
+                        Position::new(1, 0),
+                    ),
+                    context: None,
+                })
+                .unwrap(),
             Some(CompletionResponse::from(vec![])),
             "Completion at heading should not complete anything"
         );
@@ -1293,28 +1377,32 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<request::References>(ReferenceParams {
-                text_document_position: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier::new(uri.clone()),
-                    position: Position::new(0, 0),
-                },
-                context: ReferenceContext {
-                    include_declaration: false,
-                },
-            }),
+            server
+                .send_request::<request::References>(ReferenceParams {
+                    text_document_position: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier::new(uri.clone()),
+                        position: Position::new(0, 0),
+                    },
+                    context: ReferenceContext {
+                        include_declaration: false,
+                    },
+                })
+                .unwrap(),
             None
         );
 
         assert_eq!(
-            server.send_request::<request::References>(ReferenceParams {
-                text_document_position: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier::new(uri.clone()),
-                    position: Position::new(1, 0),
-                },
-                context: ReferenceContext {
-                    include_declaration: true,
-                },
-            }),
+            server
+                .send_request::<request::References>(ReferenceParams {
+                    text_document_position: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier::new(uri.clone()),
+                        position: Position::new(1, 0),
+                    },
+                    context: ReferenceContext {
+                        include_declaration: true,
+                    },
+                })
+                .unwrap(),
             Some(vec![
                 Location::new(
                     uri.clone(),
@@ -1332,15 +1420,17 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<request::References>(ReferenceParams {
-                text_document_position: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier::new(uri.clone()),
-                    position: Position::new(1, 0),
-                },
-                context: ReferenceContext {
-                    include_declaration: false,
-                },
-            }),
+            server
+                .send_request::<request::References>(ReferenceParams {
+                    text_document_position: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier::new(uri.clone()),
+                        position: Position::new(1, 0),
+                    },
+                    context: ReferenceContext {
+                        include_declaration: false,
+                    },
+                })
+                .unwrap(),
             Some(vec![
                 Location::new(
                     uri.clone(),
@@ -1354,15 +1444,17 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<request::References>(ReferenceParams {
-                text_document_position: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier::new(uri.clone()),
-                    position: Position::new(2, 7),
-                },
-                context: ReferenceContext {
-                    include_declaration: true,
-                },
-            }),
+            server
+                .send_request::<request::References>(ReferenceParams {
+                    text_document_position: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier::new(uri.clone()),
+                        position: Position::new(2, 7),
+                    },
+                    context: ReferenceContext {
+                        include_declaration: true,
+                    },
+                })
+                .unwrap(),
             Some(vec![
                 Location::new(
                     uri.clone(),
@@ -1380,15 +1472,17 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<request::References>(ReferenceParams {
-                text_document_position: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier::new(uri.clone()),
-                    position: Position::new(9, 0),
-                },
-                context: ReferenceContext {
-                    include_declaration: true,
-                },
-            }),
+            server
+                .send_request::<request::References>(ReferenceParams {
+                    text_document_position: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier::new(uri.clone()),
+                        position: Position::new(9, 0),
+                    },
+                    context: ReferenceContext {
+                        include_declaration: true,
+                    },
+                })
+                .unwrap(),
             Some(vec![Location::new(
                 uri.clone(),
                 Range::new(Position::new(9, 0), Position::new(9, 17))
@@ -1428,10 +1522,12 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier::new(file2.clone()),
-                Position::new(2, 0),
-            )),
+            server
+                .send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file2.clone()),
+                    Position::new(2, 0),
+                ))
+                .unwrap(),
             Some(request::GotoDefinitionResponse::Scalar(Location::new(
                 file2.clone(),
                 Range::new(Position::new(1, 0), Position::new(2, 0))
@@ -1439,10 +1535,12 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier::new(file2.clone()),
-                Position::new(3, 0),
-            )),
+            server
+                .send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file2.clone()),
+                    Position::new(3, 0),
+                ))
+                .unwrap(),
             Some(request::GotoDefinitionResponse::Scalar(Location::new(
                 file1.clone(),
                 Range::new(Position::new(0, 0), Position::new(0, 0))
@@ -1450,10 +1548,12 @@ mod tests {
         );
 
         assert_eq!(
-            server.send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
-                TextDocumentIdentifier::new(file2.clone()),
-                Position::new(4, 0),
-            )),
+            server
+                .send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file2.clone()),
+                    Position::new(4, 0),
+                ))
+                .unwrap(),
             Some(request::GotoDefinitionResponse::Scalar(Location::new(
                 file1.clone(),
                 Range::new(Position::new(0, 0), Position::new(0, 5))
@@ -1492,9 +1592,11 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<request::FoldingRangeRequest>(FoldingRangeParams {
-                text_document: TextDocumentIdentifier::new(uri)
-            }),
+            server
+                .send_request::<request::FoldingRangeRequest>(FoldingRangeParams {
+                    text_document: TextDocumentIdentifier::new(uri)
+                })
+                .unwrap(),
             Some(vec![
                 FoldingRange {
                     start_line: 1,
@@ -1534,9 +1636,11 @@ mod tests {
         });
 
         assert_eq!(
-            server.send_request::<request::DocumentSymbolRequest>(DocumentSymbolParams {
-                text_document: TextDocumentIdentifier::new(uri.clone()),
-            }),
+            server
+                .send_request::<request::DocumentSymbolRequest>(DocumentSymbolParams {
+                    text_document: TextDocumentIdentifier::new(uri.clone()),
+                })
+                .unwrap(),
             Some(DocumentSymbolResponse::from(vec![
                 SymbolInformation {
                     name: "# h1\n".into(),
@@ -1600,6 +1704,7 @@ mod tests {
                 .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
                     query: "".into(),
                 })
+                .unwrap()
                 .map(|symbols| {
                     let mut symbols = symbols;
                     symbols.sort_unstable_by(|left, right| left.name.cmp(&right.name));
@@ -1631,9 +1736,11 @@ mod tests {
 
         // With query matching symbols are returned.
         assert_eq!(
-            server.send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
-                query: "foo".into(),
-            }),
+            server
+                .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
+                    query: "foo".into(),
+                })
+                .unwrap(),
             Some(vec![SymbolInformation {
                 name: "# foo\n".into(),
                 location: Location::new(
