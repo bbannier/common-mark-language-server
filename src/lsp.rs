@@ -1,7 +1,7 @@
 use {
     crate::ast,
     crossbeam_channel::{select, Receiver, RecvError, Sender},
-    log::info,
+    log::{debug, info},
     lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
     lsp_types::*,
     pulldown_cmark as m,
@@ -55,12 +55,14 @@ struct VersionedDocument {
 
 // TODO(bbannier): consider addressing this linter issue.
 #[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
 enum Task {
     LoadFile(Url, (Url, Range)),
     UpdateDocument(Url, String, Option<i64>),
     RunLint,
 }
 
+#[derive(Debug)]
 enum Event {
     Api(lsp_server::Message),
     Task(Task),
@@ -161,6 +163,8 @@ fn main_loop(server: Server) -> Result<()> {
                 Err(RecvError) => continue,
             }
         };
+
+        debug!("processing event: {:?}", event);
 
         match event {
             Event::Api(api) => match api {
@@ -263,8 +267,10 @@ fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
 impl Server {
     fn response<R>(&self, id: RequestId, response: R) -> Result<()>
     where
-        R: Serialize,
+        R: Serialize + std::fmt::Debug,
     {
+        debug!("sending response: {:?}", response);
+
         self.connection
             .sender
             .send(Message::Response(Response::new_ok(id, response)))
@@ -286,6 +292,8 @@ impl Server {
     }
 
     fn add_task(&mut self, task: Task) -> Result<()> {
+        debug!("adding task: {:?}", task);
+
         self.tasks.sender.send(task)?;
         Ok(())
     }
@@ -304,7 +312,6 @@ impl Server {
         id: lsp_server::RequestId,
         params: TextDocumentPositionParams,
     ) -> Result<()> {
-        info!("got hover request #{}: {:?}", id, params);
         let uri = params.text_document.uri;
         let document = match self.documents.get(&uri) {
             Some(versioned_document) => versioned_document.document.all(),
@@ -1006,7 +1013,6 @@ mod tests {
     use {
         super::*,
         crossbeam_channel::RecvError,
-        log::debug,
         lsp_server::Connection,
         serde::Deserialize,
         std::{cell::Cell, thread::sleep, time},
