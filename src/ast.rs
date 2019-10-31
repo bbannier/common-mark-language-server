@@ -24,18 +24,16 @@ fn to_offset(position: &Position, linebreaks: &[usize]) -> Option<usize> {
     Some(char_prev_lines + char)
 }
 
-fn to_position(offset: usize, linebreaks: &[usize]) -> Option<Position> {
+fn to_position(offset: usize, linebreaks: &[usize]) -> Position {
     let (a, _): (Vec<usize>, _) = linebreaks.iter().partition(|&c| *c < offset);
 
-    let line = a.len().try_into().ok()?;
+    let line = a.len() as u64;
     let character = match a.last() {
         Some(c) => offset - c - 1, // Newline is not visible.
         None => offset,
-    }
-    .try_into()
-    .ok()?;
+    } as u64;
 
-    Some(Position::new(line, character))
+    Position::new(line, character)
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -60,29 +58,23 @@ fn get_linebreaks<P: Into<String>>(input: P) -> Vec<usize> {
 
 type AstNodes<'a> = Vec<Node<'a>>;
 
-fn try_from_offset(
-    offset: std::ops::Range<usize>,
-    linebreaks: &[usize],
-) -> Result<Range, &'static str> {
-    Ok(Range::new(
-        to_position(offset.start, &linebreaks).ok_or("Invalid start position")?,
-        to_position(offset.end, &linebreaks).ok_or("Invalid end position")?,
-    ))
+fn try_from_offset(offset: std::ops::Range<usize>, linebreaks: &[usize]) -> Range {
+    Range::new(
+        to_position(offset.start, &linebreaks),
+        to_position(offset.end, &linebreaks),
+    )
 }
 
-pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> Option<AstNodes<'a>> {
+pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> AstNodes<'a> {
     let ast = Parser::new(input)
         .into_offset_iter()
-        .map(|(event, range)| {
-            Some(Node {
-                data: event,
-                range: try_from_offset(range.clone(), &linebreaks).ok()?,
-                offsets: range,
-                anchor: None,
-            })
+        .map(|(event, range)| Node {
+            data: event,
+            range: try_from_offset(range.clone(), &linebreaks),
+            offsets: range,
+            anchor: None,
         })
-        .filter(Option::is_some)
-        .collect::<Option<Vec<_>>>()?;
+        .collect::<Vec<_>>();
 
     // Counter for the number of occurrences of a anchor's base name.
     let mut repetitions = HashMap::<&str, u64>::new();
@@ -127,16 +119,13 @@ pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> Option<AstNodes<'a>> {
         None => None,
     });
 
-    let ast = ast
-        .iter()
+    ast.iter()
         .zip(anchors)
         .map(|(node, anchor)| Node {
             anchor,
             ..node.clone()
         })
-        .collect();
-
-    Some(ast)
+        .collect()
 }
 
 #[derive(Debug)]
@@ -176,13 +165,14 @@ impl<'a> ParsedDocument<'a> {
     }
 }
 
+// FIXME(bbannier): we impl make this just for `From`.
 impl<'a> TryFrom<&'a str> for ParsedDocument<'a> {
     type Error = &'static str;
 
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
         let linebreaks = get_linebreaks(input);
 
-        let ast = parse(&input, &linebreaks).ok_or("could not parse input")?;
+        let ast = parse(&input, &linebreaks);
 
         let tree: IntervalTree<usize, Node<'a>> = IntervalTree::from_iter(ast.iter().map(|n| {
             let range = n.offsets.start..n.offsets.end;
@@ -231,34 +221,34 @@ mod tests {
     fn test_offset_to_pos() {
         assert_eq!(
             to_position(0, &[]),
-            Some(Position {
+            Position {
                 line: 0,
                 character: 0
-            })
+            }
         );
 
         assert_eq!(
             to_position(1, &[5]),
-            Some(Position {
+            Position {
                 line: 0,
                 character: 1
-            },)
+            },
         );
 
         assert_eq!(
             to_position(5, &[5]),
-            Some(Position {
+            Position {
                 line: 0,
                 character: 5
-            },)
+            },
         );
 
         assert_eq!(
             to_position(10, &[5]),
-            Some(Position {
+            Position {
                 line: 1,
                 character: 4
-            })
+            }
         );
     }
 
@@ -280,7 +270,7 @@ mod tests {
             ",
         );
 
-        let parse = parse(&input, &get_linebreaks(&input)).unwrap();
+        let parse = parse(&input, &get_linebreaks(&input));
 
         assert_eq!(
             parse,
@@ -336,7 +326,7 @@ mod tests {
             ",
         );
 
-        let parse = parse(&input, &get_linebreaks(&input)).unwrap();
+        let parse = parse(&input, &get_linebreaks(&input));
 
         assert_eq!(
             parse,
