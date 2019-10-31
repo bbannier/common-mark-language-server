@@ -3,6 +3,7 @@ use {
     lsp_types::{Position, Range},
     pulldown_cmark::{Event, Parser, Tag},
     std::{
+        collections::HashMap,
         convert::{Into, TryFrom, TryInto},
         iter::FromIterator,
         string::String,
@@ -83,15 +84,48 @@ pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> Option<AstNodes<'a>> {
         .filter(Option::is_some)
         .collect::<Option<Vec<_>>>()?;
 
-    let anchors = ast.iter().enumerate().map(|(i, node)| match &node.data {
-        Event::Start(Tag::Heading(_)) => ast.iter().skip(i).find_map(|node| match &node.data {
-            Event::Text(text) => Some(anchor(text)),
-            _ => None,
-        }),
-        _ => None,
-    });
+    // Counter for the number of occurrences of a anchor's base name.
+    let mut repetitions = HashMap::<&str, u64>::new();
 
-    // TODO(bbannier): repeated anchors should be numbered.
+    let anchors: Vec<Option<_>> = ast
+        .iter()
+        .enumerate()
+        .map(|(i, node)| match &node.data {
+            Event::Start(Tag::Heading(_)) => ast.iter().skip(i).find_map(|node| match &node.data {
+                Event::Text(text) => {
+                    if let Some(count) = repetitions.get_mut(text.as_ref()) {
+                        *count += 1;
+                    } else {
+                        repetitions.insert(text, 0);
+                    }
+
+                    Some(anchor(text))
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect(); // Collect to unborrow `repetitions`.
+
+    // Filter for just repeating anchors.
+    let mut repetitions = repetitions
+        .iter()
+        .filter_map(|(anchor, &count)| if count > 0 { Some((*anchor, 0)) } else { None })
+        .collect::<HashMap<_, _>>();
+
+    // Renumber anchors with repeated anchors base.
+    let anchors = anchors.iter().map(|anchor| match anchor {
+        Some(anchor) => {
+            let anchor: &str = anchor;
+            if let Some(count) = repetitions.get_mut(anchor) {
+                *count += 1;
+                Some(format!("{}-{}", anchor, count))
+            } else {
+                Some(String::from(anchor))
+            }
+        }
+        None => None,
+    });
 
     let ast = ast
         .iter()
@@ -246,12 +280,8 @@ mod tests {
             ",
         );
 
-        let linebreaks = get_linebreaks(&input);
+        let parse = parse(&input, &get_linebreaks(&input)).unwrap();
 
-        let parse = match parse(&input, &linebreaks) {
-            None => panic!(),
-            Some(parse) => parse,
-        };
         assert_eq!(
             parse,
             vec![
@@ -294,6 +324,60 @@ mod tests {
             ],
             "\n{:?}",
             &input
+        );
+    }
+
+    #[test]
+    fn parse_repeated_anchors() {
+        let input = dedent(
+            "
+            # heading
+            # heading
+            ",
+        );
+
+        let parse = parse(&input, &get_linebreaks(&input)).unwrap();
+
+        assert_eq!(
+            parse,
+            vec![
+                Node {
+                    data: Event::Start(Heading(1)),
+                    range: Range::new(Position::new(1, 0,), Position::new(2, 0,),),
+                    offsets: 1..11,
+                    anchor: Some("heading-1".into()),
+                },
+                Node {
+                    data: Event::Text(CowStr::Borrowed("heading")),
+                    range: Range::new(Position::new(1, 2,), Position::new(1, 9,),),
+                    offsets: 3..10,
+                    anchor: None,
+                },
+                Node {
+                    data: Event::End(Heading(1)),
+                    range: Range::new(Position::new(1, 0,), Position::new(2, 0,),),
+                    offsets: 1..11,
+                    anchor: None,
+                },
+                Node {
+                    data: Event::Start(Heading(1)),
+                    range: Range::new(Position::new(2, 0,), Position::new(3, 0,),),
+                    offsets: 11..21,
+                    anchor: Some("heading-2".into()),
+                },
+                Node {
+                    data: Event::Text(CowStr::Borrowed("heading")),
+                    range: Range::new(Position::new(2, 2,), Position::new(2, 9,),),
+                    offsets: 13..20,
+                    anchor: None,
+                },
+                Node {
+                    data: Event::End(Heading(1)),
+                    range: Range::new(Position::new(2, 0,), Position::new(3, 0,),),
+                    offsets: 11..21,
+                    anchor: None,
+                },
+            ]
         );
     }
 
