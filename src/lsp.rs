@@ -745,7 +745,6 @@ impl Server {
         let document = match std::fs::read_to_string(uri.to_file_path().unwrap()) {
             Ok(text) => text,
             Err(err) => {
-                // TODO(bbannier): add a test for read error notifications.
                 self.notification::<notification::PublishDiagnostics>(
                     // TODO(bbannier): collect all diagnostics globally and push them out at once.
                     PublishDiagnosticsParams::new(
@@ -1037,6 +1036,7 @@ mod tests {
         _thread: jod_thread::JoinHandle<()>,
         client: Connection,
         req_id: Cell<u64>,
+        notifications: (Sender<Notification>, Receiver<Notification>),
     }
 
     impl TestServer {
@@ -1054,10 +1054,13 @@ mod tests {
 
             let req_id = Cell::new(0);
 
+            let notifications = crossbeam_channel::unbounded();
+
             let server = TestServer {
                 _thread,
                 client,
                 req_id,
+                notifications,
             };
 
             server
@@ -1106,6 +1109,10 @@ mod tests {
 
                 let response = match response {
                     lsp_server::Message::Response(response) => response,
+                    lsp_server::Message::Notification(not) => {
+                        self.notifications.0.send(not).unwrap();
+                        continue;
+                    }
                     otherwise => {
                         info!("Dropping message '{:?}'", otherwise);
                         continue;
@@ -1150,6 +1157,15 @@ mod tests {
 
                 sleep(time::Duration::from_millis(10));
             }
+        }
+
+        fn notification<N>(&self) -> Result<N::Params>
+        where
+            N: notification::Notification,
+            N::Params: serde::de::DeserializeOwned,
+        {
+            let not: Notification = self.notifications.1.recv().map_err(|err| err)?;
+            serde_json::from_value(not.params).map_err(|err| err.into())
         }
     }
 
@@ -1766,6 +1782,43 @@ mod tests {
                 deprecated: None,
                 container_name: None,
             },]),
+        );
+    }
+
+    #[test]
+    fn test_load_file_error() {
+        let server = TestServer::new();
+
+        let file2 = Url::from_file_path("/foo.md").unwrap();
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                file2.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                    [bar](bar.md)
+                    ",
+                ),
+            ),
+        });
+
+        assert_eq!(
+            server
+                .notification::<notification::PublishDiagnostics>()
+                .unwrap(),
+            PublishDiagnosticsParams::new(
+                file2,
+                vec![Diagnostic::new(
+                    Range::new(Position::new(1, 0), Position::new(1, 13)),
+                    Some(DiagnosticSeverity::Error),
+                    None,
+                    None,
+                    "could not read file `file:///bar.md`: No such file or directory (os error 2)"
+                        .into(),
+                    None,
+                )]
+            )
         );
     }
 }
