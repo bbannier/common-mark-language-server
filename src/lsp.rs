@@ -6,6 +6,7 @@ use {
     lsp_types::*,
     pulldown_cmark as m,
     serde::{Deserialize, Serialize},
+    static_assertions::assert_eq_size,
     std::{
         collections::{HashMap, VecDeque},
         convert::{TryFrom, TryInto},
@@ -298,6 +299,8 @@ impl Server {
     }
 
     fn handle_status_request(&mut self, id: lsp_server::RequestId) -> Result<()> {
+        // This function does not accept parameters since `StatusRequest` is empty.
+        assert_eq_size!(StatusRequest, ());
         self.response(
             id,
             StatusResponse {
