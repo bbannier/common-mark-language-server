@@ -8,6 +8,6 @@ au User lsp_setup call lsp#register_server({
             \ })
 
 autocmd FileType markdown setlocal omnifunc=lsp#complete
-set foldmethod=expr
+autocmd FileType markdown setlocal foldmethod=expr
             \ foldexpr=lsp#ui#vim#folding#foldexpr()
             \ foldtext=lsp#ui#vim#folding#foldtext()
