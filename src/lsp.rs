@@ -48,7 +48,7 @@ rental! {
     }
 }
 
-struct VersionedDocument {
+struct Document {
     version: Option<i64>,
     document: rentals::Document,
     updating: bool,
@@ -82,7 +82,7 @@ impl Tasks {
 pub struct Server {
     connection: Connection,
     tasks: Tasks,
-    documents: HashMap<Url, VersionedDocument>,
+    documents: HashMap<Url, Document>,
     root_uri: Url,
 }
 
@@ -313,7 +313,7 @@ impl Server {
     ) -> Result<()> {
         let uri = params.text_document.uri;
         let document = match self.documents.get(&uri) {
-            Some(versioned_document) => versioned_document.document.all(),
+            Some(document) => document.document.all(),
             None => {
                 info!("did not find file '{}' in database", &uri);
                 self.response(id, Option::<HoverContents>::None)?;
@@ -345,11 +345,11 @@ impl Server {
             .get(&params.text_document_position.text_document.uri)
         {
             None => false, // Document unknown.
-            Some(versioned_document) => {
+            Some(document) => {
                 let position = &params.text_document_position.position;
                 let character: usize = position.character.try_into()?;
                 character >= 2
-                    && versioned_document
+                    && document
                         .document
                         .all()
                         .text
@@ -368,8 +368,8 @@ impl Server {
         let items = self
             .documents
             .iter()
-            .filter_map(|(uri, versioned_document)| {
-                let document = versioned_document.document.all();
+            .filter_map(|(uri, document)| {
+                let document = document.document.all();
                 let anchors = document
                     .parsed
                     .nodes()
@@ -410,8 +410,8 @@ impl Server {
             .documents
             .get(&text_document_position.text_document.uri)
             .iter()
-            .flat_map(|versioned_document| {
-                versioned_document
+            .flat_map(|document| {
+                document
                     .document
                     .all()
                     .parsed
@@ -465,35 +465,31 @@ impl Server {
             vec![]
         };
 
-        let result = self
-            .documents
-            .iter()
-            .flat_map(move |(uri, versioned_document)| {
-                let uri = uri;
-                let request_uri = text_document_position.text_document.uri.clone();
-                let anchor = anchor.clone();
-                versioned_document
-                    .document
-                    .all()
-                    .parsed
-                    .nodes()
-                    .iter()
-                    .filter_map(move |node| match &node.data {
-                        m::Event::Start(m::Tag::Link(_, reference, _))
-                            if reference.as_ref()
-                                == full_reference(
-                                    (&anchor, uri),
-                                    &self.root_uri,
-                                    &request_uri,
-                                )? =>
-                        {
-                            Some(Location::new(uri.clone(), node.range))
-                        }
-                        _ => None,
-                    })
-            })
-            .chain(declaration.iter().cloned())
-            .collect::<Vec<_>>();
+        let result =
+            self.documents
+                .iter()
+                .flat_map(move |(uri, document)| {
+                    let uri = uri;
+                    let request_uri = text_document_position.text_document.uri.clone();
+                    let anchor = anchor.clone();
+                    document.document.all().parsed.nodes().iter().filter_map(
+                        move |node| match &node.data {
+                            m::Event::Start(m::Tag::Link(_, reference, _))
+                                if reference.as_ref()
+                                    == full_reference(
+                                        (&anchor, uri),
+                                        &self.root_uri,
+                                        &request_uri,
+                                    )? =>
+                            {
+                                Some(Location::new(uri.clone(), node.range))
+                            }
+                            _ => None,
+                        },
+                    )
+                })
+                .chain(declaration.iter().cloned())
+                .collect::<Vec<_>>();
 
         self.response(id, result)?;
         Ok(())
@@ -507,9 +503,9 @@ impl Server {
         let result: Option<request::GotoDefinitionResponse> = self
             .documents
             .get(&params.text_document.uri)
-            .and_then(|versioned_document| {
+            .and_then(|document| {
                 // Extract any link at the current position.
-                versioned_document
+                document
                     .document
                     .all()
                     .parsed
@@ -537,8 +533,8 @@ impl Server {
         let result: Option<Vec<_>> =
             self.documents
                 .get(&params.text_document.uri)
-                .map(|versioned_document| {
-                    let nodes = versioned_document.document.all().parsed.nodes();
+                .map(|document| {
+                    let nodes = document.document.all().parsed.nodes();
 
                     let last_node = nodes.iter().max_by_key(|node| node.offsets.end);
 
@@ -726,7 +722,7 @@ impl Server {
 
         self.documents.insert(
             uri,
-            VersionedDocument {
+            Document {
                 document,
                 version,
                 updating: false,
@@ -773,8 +769,8 @@ impl Server {
     fn get_destination(&self, source: &Url, dest: &str) -> Option<Location> {
         from_reference(dest, source).and_then(|(uri, anchor)| {
             // Obtain dest node and create result.
-            self.documents.get(&uri).and_then(|versioned_document| {
-                versioned_document
+            self.documents.get(&uri).and_then(|document| {
+                document
                     .document
                     .all()
                     .parsed
@@ -823,8 +819,8 @@ impl Server {
 
         self.documents
             .iter()
-            .map(|(uri, versioned_document)| {
-                let diagnostics = versioned_document
+            .map(|(uri, document)| {
+                let diagnostics = document
                     .document
                     .all()
                     .parsed
@@ -866,8 +862,8 @@ impl Server {
     }
 
     fn get_symbols(&self, uri: &Url) -> Option<Vec<SymbolInformation>> {
-        self.documents.get(uri).map(|versioned_document| {
-            versioned_document
+        self.documents.get(uri).map(|document| {
+            document
                 .document
                 .all()
                 .parsed
@@ -875,8 +871,7 @@ impl Server {
                 .iter()
                 .filter_map(|node: &ast::Node| match &node.anchor {
                     Some(_) => Some(SymbolInformation {
-                        name: versioned_document.document.all().text
-                            [node.offsets.start..node.offsets.end]
+                        name: document.document.all().text[node.offsets.start..node.offsets.end]
                             .into(),
                         location: Location::new(uri.clone(), node.range),
                         kind: SymbolKind::String,
