@@ -4,7 +4,7 @@ use {
     pulldown_cmark::{Event, Parser, Tag},
     std::{
         collections::HashMap,
-        convert::{Into, TryFrom, TryInto},
+        convert::{Into, TryInto},
         iter::FromIterator,
         string::String,
     },
@@ -165,11 +165,8 @@ impl<'a> ParsedDocument<'a> {
     }
 }
 
-// FIXME(bbannier): we impl make this just for `From`.
-impl<'a> TryFrom<&'a str> for ParsedDocument<'a> {
-    type Error = &'static str;
-
-    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+impl<'a> From<&'a str> for ParsedDocument<'a> {
+    fn from(input: &'a str) -> Self {
         let linebreaks = get_linebreaks(input);
 
         let ast = parse(&input, &linebreaks);
@@ -182,11 +179,11 @@ impl<'a> TryFrom<&'a str> for ParsedDocument<'a> {
             }
         }));
 
-        Ok(ParsedDocument {
+        ParsedDocument {
             ast,
             tree,
             linebreaks,
-        })
+        }
     }
 }
 
@@ -374,7 +371,7 @@ mod tests {
     #[test]
     fn test_query() {
         let s = "asdasad sdaasa aasd asdasdasdada";
-        let ast = ParsedDocument::try_from(s).unwrap();
+        let ast = ParsedDocument::from(s);
 
         assert_eq!(
             ast.at(&Position::new(0, 0)),
