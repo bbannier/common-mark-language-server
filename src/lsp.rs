@@ -665,7 +665,7 @@ impl Server {
     }
 
     fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
-        if let Some(document) = self.documents.get(&uri) {
+        if let Some(document) = self.documents.get_mut(&uri) {
             if document.version > version {
                 info!("not updating {} as more recent version is known", &uri);
                 return Ok(());
@@ -676,6 +676,7 @@ impl Server {
                     "not update {} as the new version is identical to the stored one",
                     &uri
                 );
+                document.updating = false;
                 return Ok(());
             }
         }
@@ -727,11 +728,6 @@ impl Server {
     }
 
     fn load_file(&mut self, uri: Url, source: (Url, Range)) -> Result<()> {
-        // If the document appeared in the cache it is already tracked by the client.
-        if self.documents.contains_key(&uri) {
-            return Ok(());
-        }
-
         let document = match std::fs::read_to_string(uri.to_file_path().unwrap()) {
             Ok(text) => text,
             Err(err) => {
@@ -794,6 +790,7 @@ impl Server {
         }
 
         if !self.dirty {
+            debug!("skipping redundant linting run");
             return Ok(());
         }
 
