@@ -665,13 +665,19 @@ impl Server {
     }
 
     fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
-        let existing_version = self
-            .documents
-            .get(&uri)
-            .and_then(|document| document.version);
-        if existing_version > version {
-            info!("not updating {} as more recent version is known", &uri);
-            return Ok(());
+        if let Some(document) = self.documents.get(&uri) {
+            if document.version > version {
+                info!("not updating {} as more recent version is known", &uri);
+                return Ok(());
+            }
+
+            if document.document.all().text == text {
+                debug!(
+                    "not update {} as the new version is identical to the stored one",
+                    &uri
+                );
+                return Ok(());
+            }
         }
 
         info!("updating {}", &uri);
