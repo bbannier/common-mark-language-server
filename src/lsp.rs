@@ -85,6 +85,7 @@ pub struct Server {
     tasks: Tasks,
     documents: HashMap<Url, Document>,
     root_uri: Url,
+    dirty: bool,
 }
 
 struct StatusRequest;
@@ -141,6 +142,7 @@ pub fn run_server(connection: Connection) -> Result<()> {
         tasks,
         documents: HashMap::new(),
         root_uri,
+        dirty: false,
     };
 
     main_loop(server)
@@ -712,6 +714,8 @@ impl Server {
             },
         );
 
+        self.dirty = true;
+
         // Schedule linter run.
         self.add_task(Task::RunLint)
     }
@@ -783,6 +787,10 @@ impl Server {
             return self.add_task(Task::RunLint);
         }
 
+        if !self.dirty {
+            return Ok(());
+        }
+
         self.check_references()
             .iter()
             .cloned()
@@ -792,6 +800,8 @@ impl Server {
                 )
             })
             .collect::<Result<Vec<()>>>()?;
+
+        self.dirty = false;
 
         Ok(())
     }
