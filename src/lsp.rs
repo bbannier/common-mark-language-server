@@ -696,6 +696,10 @@ impl Server {
                 m::Event::Start(m::Tag::Link(_, dest, _)) => {
                     let (document, _anchor) = from_reference(dest.as_ref(), &uri)?;
 
+                    if document == uri {
+                        return None;
+                    }
+
                     match document.scheme() {
                         "file" => Some((document, node.range)),
                         _ => None,
