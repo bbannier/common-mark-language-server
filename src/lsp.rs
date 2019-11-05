@@ -53,6 +53,7 @@ struct Document {
     version: Option<i64>,
     document: rentals::Document,
     updating: bool,
+    diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug)]
@@ -86,6 +87,7 @@ pub struct Server {
     documents: HashMap<Url, Document>,
     root_uri: Url,
     dirty: bool,
+    open_document: Option<Url>,
 }
 
 struct StatusRequest;
@@ -143,6 +145,7 @@ pub fn run_server(connection: Connection) -> Result<()> {
         documents: HashMap::new(),
         root_uri,
         dirty: false,
+        open_document: None,
     };
 
     main_loop(server)
@@ -253,6 +256,12 @@ fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
     let not = match notification_cast::<notification::DidOpenTextDocument>(not) {
         Ok(params) => {
             return server.handle_did_open_text_document(params);
+        }
+        Err(not) => not,
+    };
+    let not = match notification_cast::<notification::DidCloseTextDocument>(not) {
+        Ok(params) => {
+            return server.handle_did_close_text_document(params);
         }
         Err(not) => not,
     };
@@ -576,8 +585,15 @@ impl Server {
                                             // is safe as we need to have lines preceeding the
                                             // _next_ section.
                                             n.range.start.line - 1)
-                                        .unwrap_or(last_node.expect("if we iterate anything at all there should be a last node").range.end.line)
-                                    ;
+                            .unwrap_or(
+                                last_node
+                                    .expect(
+                                        "if we iterate anything at all there should be a last node",
+                                    )
+                                    .range
+                                    .end
+                                    .line,
+                            );
 
                                 Some(FoldingRange {
                                     start_line: node.range.start.line,
@@ -641,7 +657,18 @@ impl Server {
             document.updating = true;
         }
 
+        self.open_document = Some(uri.clone());
+
         self.add_task(Task::UpdateDocument(uri, text, Some(version)))
+    }
+
+    fn handle_did_close_text_document(
+        &mut self,
+        _params: DidCloseTextDocumentParams,
+    ) -> Result<()> {
+        self.open_document = None;
+
+        Ok(())
     }
 
     fn handle_did_change_text_document(
@@ -722,6 +749,7 @@ impl Server {
                 document,
                 version,
                 updating: false,
+                diagnostics: vec![],
             },
         );
 
@@ -735,20 +763,17 @@ impl Server {
         let document = match std::fs::read_to_string(uri.to_file_path().unwrap()) {
             Ok(text) => text,
             Err(err) => {
-                self.notification::<notification::PublishDiagnostics>(
-                    // TODO(bbannier): collect all diagnostics globally and push them out at once.
-                    PublishDiagnosticsParams::new(
-                        source.0,
-                        vec![Diagnostic::new(
-                            source.1,
-                            Some(DiagnosticSeverity::Error),
-                            None, // code
-                            None, // source
-                            format!("could not read file `{}`: {}", uri, err.to_string()), // message
-                            None, // related info
-                        )],
-                    ),
-                )?;
+                if let Some(document) = self.documents.get_mut(&source.0) {
+                    // TODO(bbannier): deduplicate diagnostics.
+                    document.diagnostics.push(Diagnostic::new(
+                        source.1,
+                        Some(DiagnosticSeverity::Error),
+                        None,                                                          // code
+                        None,                                                          // source
+                        format!("could not read file `{}`: {}", uri, err.to_string()), // message
+                        None, // related info
+                    ));
+                }
 
                 return Ok(());
             }
@@ -798,25 +823,30 @@ impl Server {
             return Ok(());
         }
 
-        self.check_references()
-            .iter()
-            .cloned()
-            .map(|(uri, diagnostics)| {
-                self.notification::<notification::PublishDiagnostics>(
-                    PublishDiagnosticsParams::new(uri, diagnostics),
-                )
-            })
-            .collect::<Result<Vec<()>>>()?;
+        self.check_references();
 
         self.dirty = false;
+
+        // Publish diagnostics for open document.
+        if let Some(open_document) = &self.open_document {
+            self.documents.get(open_document).map(|document| {
+                self.notification::<notification::PublishDiagnostics>(
+                    PublishDiagnosticsParams::new(
+                        open_document.clone(),
+                        document.diagnostics.clone(),
+                    ),
+                )
+            });
+        }
 
         Ok(())
     }
 
-    fn check_references(&self) -> Vec<(Url, Vec<Diagnostic>)> {
+    fn check_references(&mut self) {
         info!("checking references");
 
-        self.documents
+        let diagnostics = self
+            .documents
             .iter()
             .map(|(uri, document)| {
                 let diagnostics = document
@@ -857,7 +887,13 @@ impl Server {
 
                 (uri.clone(), diagnostics)
             })
-            .collect()
+            .collect::<HashMap<_, _>>();
+
+        for (uri, diagnostics) in diagnostics {
+            if let Some(document) = self.documents.get_mut(&uri) {
+                document.diagnostics = diagnostics;
+            }
+        }
     }
 
     fn get_symbols(&self, uri: &Url) -> Option<Vec<SymbolInformation>> {
@@ -1811,8 +1847,7 @@ mod tests {
                     Some(DiagnosticSeverity::Error),
                     None,
                     None,
-                    "could not read file `file:///bar.md`: No such file or directory (os error 2)"
-                        .into(),
+                    "reference 'bar.md' not found".into(),
                     None,
                 )]
             )
