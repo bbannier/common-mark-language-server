@@ -866,7 +866,6 @@ impl Server {
                             }
 
                             match self.get_destination(uri, dest) {
-                                // FIXME(bbannier): cache these and only send the same diagnostic once.
                                 None => Some(Diagnostic::new(
                                     node.range, // source range
                                     Some(DiagnosticSeverity::Error),
