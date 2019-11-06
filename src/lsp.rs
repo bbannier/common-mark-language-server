@@ -56,6 +56,14 @@ struct Document {
     diagnostics: Vec<Diagnostic>,
 }
 
+impl Document {
+    fn add_diagnostic(&mut self, diagnostic: Diagnostic) {
+        if !self.diagnostics.contains(&diagnostic) {
+            self.diagnostics.push(diagnostic);
+        }
+    }
+}
+
 #[derive(Debug)]
 enum Task {
     LoadFile(Box<(Url, (Url, Range))>),
@@ -764,8 +772,7 @@ impl Server {
             Ok(text) => text,
             Err(err) => {
                 if let Some(document) = self.documents.get_mut(&source.0) {
-                    // TODO(bbannier): deduplicate diagnostics.
-                    document.diagnostics.push(Diagnostic::new(
+                    document.add_diagnostic(Diagnostic::new(
                         source.1,
                         Some(DiagnosticSeverity::Error),
                         None,                                                          // code
