@@ -89,10 +89,12 @@ impl Tasks {
     }
 }
 
+type Documents = HashMap<Url, Document>;
+
 struct Server {
     connection: Connection,
     tasks: Tasks,
-    documents: HashMap<Url, Document>,
+    documents: Documents,
     root_uri: Url,
     dirty: bool,
     open_document: Option<Url>,
@@ -150,7 +152,7 @@ pub fn run_server(connection: Connection) -> Result<()> {
     let server = Server {
         connection,
         tasks,
-        documents: HashMap::new(),
+        documents: Documents::new(),
         root_uri,
         dirty: false,
         open_document: None,
