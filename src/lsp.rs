@@ -142,6 +142,58 @@ fn get_destination(documents: &Documents, source: &Url, dest: &str) -> Option<Lo
     })
 }
 
+fn check_references(documents: &mut Documents) {
+    info!("checking references");
+
+    let diagnostics = documents
+        .iter()
+        .map(|(uri, document)| {
+            let diagnostics = document
+                .document
+                .all()
+                .parsed
+                .nodes()
+                .iter()
+                .filter_map(|node| match &node.data {
+                    m::Event::Start(m::Tag::Link(_, dest, _)) => {
+                        // Ignore non-file links for now.
+                        use std::str::FromStr;
+                        if let Ok(dest) = Url::from_str(dest.as_ref()) {
+                            if dest.scheme() != "file" {
+                                return None;
+                            }
+                        }
+
+                        match get_destination(documents, uri, dest) {
+                            None => Some(Diagnostic::new(
+                                node.range, // source range
+                                Some(DiagnosticSeverity::Error),
+                                None, // code
+                                None, // source
+                                format!("reference '{}' not found", dest),
+                                None, // related info
+                            )),
+                            Some(_) => None,
+                        }
+                    }
+                    _ => None,
+                })
+                .inspect(|_| {
+                    info!("found invalid reference in `{}`", &uri);
+                })
+                .collect::<Vec<_>>();
+
+            (uri.clone(), diagnostics)
+        })
+        .collect::<HashMap<_, _>>();
+
+    for (uri, diagnostics) in diagnostics {
+        if let Some(document) = documents.get_mut(&uri) {
+            document.diagnostics = diagnostics;
+        }
+    }
+}
+
 struct Server {
     connection: Connection,
     tasks: Tasks,
@@ -854,7 +906,7 @@ impl Server {
             return Ok(());
         }
 
-        self.check_references();
+        check_references(&mut self.documents);
 
         self.dirty = false;
 
@@ -871,59 +923,6 @@ impl Server {
         }
 
         Ok(())
-    }
-
-    fn check_references(&mut self) {
-        info!("checking references");
-
-        let diagnostics = self
-            .documents
-            .iter()
-            .map(|(uri, document)| {
-                let diagnostics = document
-                    .document
-                    .all()
-                    .parsed
-                    .nodes()
-                    .iter()
-                    .filter_map(|node| match &node.data {
-                        m::Event::Start(m::Tag::Link(_, dest, _)) => {
-                            // Ignore non-file links for now.
-                            use std::str::FromStr;
-                            if let Ok(dest) = Url::from_str(dest.as_ref()) {
-                                if dest.scheme() != "file" {
-                                    return None;
-                                }
-                            }
-
-                            match get_destination(&self.documents, uri, dest) {
-                                None => Some(Diagnostic::new(
-                                    node.range, // source range
-                                    Some(DiagnosticSeverity::Error),
-                                    None, // code
-                                    None, // source
-                                    format!("reference '{}' not found", dest),
-                                    None, // related info
-                                )),
-                                Some(_) => None,
-                            }
-                        }
-                        _ => None,
-                    })
-                    .inspect(|_| {
-                        info!("found invalid reference in `{}`", &uri);
-                    })
-                    .collect::<Vec<_>>();
-
-                (uri.clone(), diagnostics)
-            })
-            .collect::<HashMap<_, _>>();
-
-        for (uri, diagnostics) in diagnostics {
-            if let Some(document) = self.documents.get_mut(&uri) {
-                document.diagnostics = diagnostics;
-            }
-        }
     }
 }
 
