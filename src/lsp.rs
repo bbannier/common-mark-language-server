@@ -389,7 +389,7 @@ fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
 }
 
 impl Server {
-    fn response<R>(&self, id: RequestId, response: R) -> Result<()>
+    fn respond<R>(&self, id: RequestId, response: R) -> Result<()>
     where
         R: Serialize + std::fmt::Debug,
     {
@@ -401,7 +401,7 @@ impl Server {
             .map_err(|err| err.into())
     }
 
-    fn notification<N>(&self, params: N::Params) -> Result<()>
+    fn notify<N>(&self, params: N::Params) -> Result<()>
     where
         N: notification::Notification,
         N::Params: Serialize,
@@ -425,7 +425,7 @@ impl Server {
     fn handle_status_request(&mut self, id: lsp_server::RequestId) -> Result<()> {
         // This function does not accept parameters since `StatusRequest` is empty.
         assert_eq_size!(StatusRequest, ());
-        self.response(
+        self.respond(
             id,
             StatusResponse {
                 is_idle: self.tasks.receiver.is_empty(),
@@ -443,7 +443,7 @@ impl Server {
             Some(document) => document.document.all(),
             None => {
                 info!("did not find file '{}' in database", &uri);
-                self.response(id, Option::<HoverContents>::None)?;
+                self.respond(id, Option::<HoverContents>::None)?;
                 return Ok(());
             }
         };
@@ -460,7 +460,7 @@ impl Server {
             range: Some(node.range),
         });
 
-        self.response(id, result)?;
+        self.respond(id, result)?;
         Ok(())
     }
 
@@ -487,7 +487,7 @@ impl Server {
             }
         };
         if !good_position {
-            self.response(id, Vec::<CompletionItem>::new())?;
+            self.respond(id, Vec::<CompletionItem>::new())?;
             return Ok(());
         }
 
@@ -526,7 +526,7 @@ impl Server {
             .map(|(label, detail)| CompletionItem::new_simple(label, detail.into()))
             .collect::<Vec<CompletionItem>>();
 
-        self.response(id, items)?;
+        self.respond(id, items)?;
         Ok(())
     }
 
@@ -578,7 +578,7 @@ impl Server {
             Some((anchor, range)) => (anchor, range),
             _ => {
                 // No anchor found at position, return empty result.
-                self.response(id, Option::<Vec<Location>>::None)?;
+                self.respond(id, Option::<Vec<Location>>::None)?;
                 return Ok(());
             }
         };
@@ -618,7 +618,7 @@ impl Server {
                 .chain(declaration.iter().cloned())
                 .collect::<Vec<_>>();
 
-        self.response(id, result)?;
+        self.respond(id, result)?;
         Ok(())
     }
 
@@ -648,7 +648,7 @@ impl Server {
                     .map(|location| location.into())
             });
 
-        self.response(id, result)?;
+        self.respond(id, result)?;
         Ok(())
     }
 
@@ -721,7 +721,7 @@ impl Server {
                         .collect()
                 });
 
-        self.response(id, result)?;
+        self.respond(id, result)?;
         Ok(())
     }
 
@@ -730,7 +730,7 @@ impl Server {
         id: RequestId,
         params: DocumentSymbolParams,
     ) -> Result<()> {
-        self.response(
+        self.respond(
             id,
             get_symbols(&self.documents, &params.text_document.uri)
                 .map(DocumentSymbolResponse::from),
@@ -757,7 +757,7 @@ impl Server {
             .flatten()
             .collect();
 
-        self.response(id, result)?;
+        self.respond(id, result)?;
         Ok(())
     }
 
@@ -913,12 +913,10 @@ impl Server {
         // Publish diagnostics for open document.
         if let Some(open_document) = &self.open_document {
             self.documents.get(open_document).map(|document| {
-                self.notification::<notification::PublishDiagnostics>(
-                    PublishDiagnosticsParams::new(
-                        open_document.clone(),
-                        document.diagnostics.clone(),
-                    ),
-                )
+                self.notify::<notification::PublishDiagnostics>(PublishDiagnosticsParams::new(
+                    open_document.clone(),
+                    document.diagnostics.clone(),
+                ))
             });
         }
 
