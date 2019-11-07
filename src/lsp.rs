@@ -89,7 +89,7 @@ impl Tasks {
     }
 }
 
-pub struct Server {
+struct Server {
     connection: Connection,
     tasks: Tasks,
     documents: HashMap<Url, Document>,
