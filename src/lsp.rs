@@ -91,6 +91,28 @@ impl Tasks {
 
 type Documents = HashMap<Url, Document>;
 
+fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation>> {
+    documents.get(uri).map(|document| {
+        document
+            .document
+            .all()
+            .parsed
+            .nodes()
+            .iter()
+            .filter_map(|node: &ast::Node| match &node.anchor {
+                Some(_) => Some(SymbolInformation {
+                    name: document.document.all().text[node.offsets.start..node.offsets.end].into(),
+                    location: Location::new(uri.clone(), node.range),
+                    kind: SymbolKind::String,
+                    deprecated: None,
+                    container_name: None,
+                }),
+                None => None,
+            })
+            .collect()
+    })
+}
+
 struct Server {
     connection: Connection,
     tasks: Tasks,
@@ -629,7 +651,7 @@ impl Server {
     ) -> Result<()> {
         self.response(
             id,
-            self.get_symbols(&params.text_document.uri)
+            get_symbols(&self.documents, &params.text_document.uri)
                 .map(DocumentSymbolResponse::from),
         )?;
         Ok(())
@@ -643,7 +665,7 @@ impl Server {
         let result: Vec<_> = self
             .documents
             .keys()
-            .map(|uri| match self.get_symbols(uri) {
+            .map(|uri| match get_symbols(&self.documents, uri) {
                 Some(symbols) => symbols
                     .iter()
                     .filter(|symbol: &&SymbolInformation| symbol.name.contains(&params.query))
@@ -902,29 +924,6 @@ impl Server {
                 document.diagnostics = diagnostics;
             }
         }
-    }
-
-    fn get_symbols(&self, uri: &Url) -> Option<Vec<SymbolInformation>> {
-        self.documents.get(uri).map(|document| {
-            document
-                .document
-                .all()
-                .parsed
-                .nodes()
-                .iter()
-                .filter_map(|node: &ast::Node| match &node.anchor {
-                    Some(_) => Some(SymbolInformation {
-                        name: document.document.all().text[node.offsets.start..node.offsets.end]
-                            .into(),
-                        location: Location::new(uri.clone(), node.range),
-                        kind: SymbolKind::String,
-                        deprecated: None,
-                        container_name: None,
-                    }),
-                    None => None,
-                })
-                .collect()
-        })
     }
 }
 
