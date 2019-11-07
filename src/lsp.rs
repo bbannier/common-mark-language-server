@@ -113,6 +113,35 @@ fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation
     })
 }
 
+fn get_destination(documents: &Documents, source: &Url, dest: &str) -> Option<Location> {
+    from_reference(dest, source).and_then(|(uri, anchor)| {
+        // Obtain dest node and create result.
+        documents.get(&uri).and_then(|document| {
+            document
+                .document
+                .all()
+                .parsed
+                .nodes()
+                .iter()
+                .find_map(|node| {
+                    if let Some(anchor) = &anchor {
+                        if let Some(node_anchor) = &node.anchor {
+                            if node_anchor == anchor {
+                                return Some(Location::new(uri.clone(), node.range));
+                            }
+                        }
+                    } else {
+                        return Some(Location::new(
+                            uri.clone(),
+                            Range::new(Position::new(0, 0), Position::new(0, 0)),
+                        ));
+                    }
+                    None
+                })
+        })
+    })
+}
+
 struct Server {
     connection: Connection,
     tasks: Tasks,
@@ -563,7 +592,7 @@ impl Server {
                     })
             })
             .and_then(|dest| {
-                self.get_destination(&params.text_document.uri, dest)
+                get_destination(&self.documents, &params.text_document.uri, dest)
                     .map(|location| location.into())
             });
 
@@ -814,35 +843,6 @@ impl Server {
         self.add_task(Task::UpdateDocument(uri, document, None))
     }
 
-    fn get_destination(&self, source: &Url, dest: &str) -> Option<Location> {
-        from_reference(dest, source).and_then(|(uri, anchor)| {
-            // Obtain dest node and create result.
-            self.documents.get(&uri).and_then(|document| {
-                document
-                    .document
-                    .all()
-                    .parsed
-                    .nodes()
-                    .iter()
-                    .find_map(|node| {
-                        if let Some(anchor) = &anchor {
-                            if let Some(node_anchor) = &node.anchor {
-                                if node_anchor == anchor {
-                                    return Some(Location::new(uri.clone(), node.range));
-                                }
-                            }
-                        } else {
-                            return Some(Location::new(
-                                uri.clone(),
-                                Range::new(Position::new(0, 0), Position::new(0, 0)),
-                            ));
-                        }
-                        None
-                    })
-            })
-        })
-    }
-
     fn run_lint(&mut self) -> Result<()> {
         if self.documents.iter().any(|(_, document)| document.updating) {
             debug!("documents are still updating, defering linting");
@@ -896,7 +896,7 @@ impl Server {
                                 }
                             }
 
-                            match self.get_destination(uri, dest) {
+                            match get_destination(&self.documents, uri, dest) {
                                 None => Some(Diagnostic::new(
                                     node.range, // source range
                                     Some(DiagnosticSeverity::Error),
