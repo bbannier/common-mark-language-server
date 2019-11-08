@@ -1182,10 +1182,11 @@ mod tests {
                     }
                     // We might receive an `RecvError` if no message is available, yet, in which
                     // case we continue. For other errors like e.g., `SendError` we should break;
-                    Err(err) => match err.is::<RecvError>() {
-                        true => continue,
-                        _ => break,
-                    },
+                    Err(err) => {
+                        if !err.is::<RecvError>() {
+                            break;
+                        }
+                    }
                 };
 
                 sleep(time::Duration::from_millis(10));
