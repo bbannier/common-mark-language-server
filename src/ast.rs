@@ -2,6 +2,7 @@ use {
     intervaltree::{Element, IntervalTree},
     lsp_types::{Position, Range},
     pulldown_cmark::{Event, Parser, Tag},
+    regex::Regex,
     std::{
         collections::HashMap,
         convert::{Into, TryInto},
@@ -188,14 +189,17 @@ impl<'a> From<&'a str> for ParsedDocument<'a> {
 }
 
 fn anchor(text: &str) -> String {
-    let mut s = text
-        .trim()
-        .replace("-", "--")
-        .replace(" ", "-")
-        .to_lowercase();
-    s.retain(|c| c.is_alphanumeric() || c == '-');
+    let re = Regex::new(r"-+").unwrap();
 
-    s
+    let mut anchor = re
+        .replace_all(text, "-")
+        .trim()
+        .to_ascii_lowercase()
+        .replace(" ", "-");
+
+    anchor.retain(|c| c.is_alphanumeric() || c == '-');
+
+    anchor
 }
 
 #[cfg(test)]
@@ -398,7 +402,10 @@ mod tests {
         assert_eq!(anchor(" Foo"), "foo");
         assert_eq!(anchor("FOO"), "foo");
         assert_eq!(anchor("Foo Bar"), "foo-bar");
-        assert_eq!(anchor("Hi-Hat"), "hi--hat");
-        assert_eq!(anchor("Foo %1-2"), "foo-1--2");
+        assert_eq!(anchor("Hi-Hat"), "hi-hat");
+        assert_eq!(anchor("Foo %1-2"), "foo-1-2");
+        assert_eq!(anchor("double--dash"), "double-dash");
+        assert_eq!(anchor("triple---dash"), "triple-dash");
+        assert_eq!(anchor("end- dash"), "end--dash");
     }
 }
