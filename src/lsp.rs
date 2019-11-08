@@ -415,14 +415,14 @@ impl Server {
             .map_err(|err| err.into())
     }
 
-    fn add_task(&mut self, task: Task) -> Result<()> {
+    fn add_task(&self, task: Task) -> Result<()> {
         debug!("adding task: {:?}", task);
 
         self.tasks.sender.send(task)?;
         Ok(())
     }
 
-    fn handle_status_request(&mut self, id: lsp_server::RequestId) -> Result<()> {
+    fn handle_status_request(&self, id: lsp_server::RequestId) -> Result<()> {
         // This function does not accept parameters since `StatusRequest` is empty.
         assert_eq_size!(StatusRequest, ());
         self.respond(
@@ -726,7 +726,7 @@ impl Server {
     }
 
     fn handle_document_symbol_request(
-        &mut self,
+        &self,
         id: RequestId,
         params: DocumentSymbolParams,
     ) -> Result<()> {
@@ -738,11 +738,7 @@ impl Server {
         Ok(())
     }
 
-    fn handle_workspace_symbol(
-        &mut self,
-        id: RequestId,
-        params: WorkspaceSymbolParams,
-    ) -> Result<()> {
+    fn handle_workspace_symbol(&self, id: RequestId, params: WorkspaceSymbolParams) -> Result<()> {
         let result: Vec<_> = self
             .documents
             .keys()
