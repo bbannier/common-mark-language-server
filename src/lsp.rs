@@ -248,7 +248,7 @@ pub fn run_server(connection: Connection) -> Result<()> {
 
     let root_uri = initialize_params
         .root_uri
-        .unwrap_or_else(|| root_path.unwrap_or_else(|| cwd.expect("could not determie root_uri")));
+        .unwrap_or_else(|| root_path.unwrap_or_else(|| cwd.expect("could not determine root_uri")));
 
     let tasks = Tasks::new();
 
