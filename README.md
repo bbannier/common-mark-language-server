@@ -25,6 +25,24 @@ cargo install --git https://github.com/bbannier/common-mark-language-server
 
 #### Vim
 
+##### coc
+
+If you are using [coc](https://github.com/neoclide/coc.nvim.git) add the
+following language server to your `coc-settings.json`,
+
+```json
+{
+  "languageserver": {
+    "common-mark-language-server": {
+        "command": "common-mark-language-server",
+        "filetypes": ["markdown"]
+    }
+  }
+}
+```
+
+##### vim-lsp
+
 If you are using [vim-lsp](https://github.com/prabirshrestha/vim-lsp) add the
 following to your `.vimrc`,
 
