@@ -203,6 +203,70 @@ struct Server {
     open_document: Option<Url>,
 }
 
+trait LspRequests {
+    fn hover(&self, _: TextDocumentPositionParams) -> Option<Hover> {
+        None
+    }
+
+    fn completion(&self, _: CompletionParams) -> Option<CompletionResponse> {
+        None
+    }
+
+    fn references(&self, _: ReferenceParams) -> Option<Vec<Location>> {
+        None
+    }
+
+    fn goto_definition(
+        &self,
+        _: TextDocumentPositionParams,
+    ) -> Option<request::GotoDefinitionResponse> {
+        None
+    }
+
+    fn folding_range(&self, _: FoldingRangeParams) -> Option<Vec<FoldingRange>> {
+        None
+    }
+
+    fn document_symbol(&self, _: DocumentSymbolParams) -> Option<DocumentSymbolResponse> {
+        None
+    }
+
+    fn workspace_symbol(&self, _: WorkspaceSymbolParams) -> Option<Vec<SymbolInformation>> {
+        None
+    }
+}
+
+trait LspRequestsExtra {
+    fn status(&self) -> Option<StatusResponse> {
+        None
+    }
+}
+
+trait LspRespond {
+    fn respond<R>(&self, id: RequestId, response: R) -> Result<()>
+    where
+        R: Serialize + std::fmt::Debug;
+}
+
+trait LspNotification {
+    fn did_open_text_document(&mut self, _: DidOpenTextDocumentParams) {}
+    fn did_close_text_document(&mut self, _: DidCloseTextDocumentParams) {}
+    fn did_change_text_document(&mut self, _: DidChangeTextDocumentParams) {}
+}
+
+trait LspNotify {
+    fn notify<N>(&self, params: N::Params) -> Result<()>
+    where
+        N: notification::Notification,
+        N::Params: Serialize;
+}
+
+trait ServerExecution {
+    fn update_document(&mut self, uri: Url, text: String, version: Option<i64>);
+    fn load_file(&mut self, uri: Url, source: (Url, Range));
+    fn run_lint(&mut self);
+}
+
 struct StatusRequest;
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -213,7 +277,7 @@ struct StatusResponse {
 impl request::Request for StatusRequest {
     type Params = ();
     type Result = StatusResponse;
-    const METHOD: &'static str = "common-mark-language-server/status";
+    const METHOD: &'static str = "generic-language-server/status";
 }
 
 fn server_capabilities() -> ServerCapabilities {
@@ -294,16 +358,16 @@ fn main_loop(server: Server) -> Result<()> {
                     on_request(req, &mut server)?;
                 }
                 Message::Notification(not) => {
-                    on_notification(not, &mut server)?;
+                    on_notification(not, &mut server);
                 }
                 Message::Response(_resp) => {}
             },
             Event::Task(task) => match task {
-                Task::LoadFile(uri_source) => server.load_file(uri_source.0, uri_source.1)?,
+                Task::LoadFile(uri_source) => server.load_file(uri_source.0, uri_source.1),
                 Task::UpdateDocument(uri, document, version) => {
-                    server.update_document(uri, document, version)?
+                    server.update_document(uri, document, version)
                 }
-                Task::RunLint => server.run_lint()?,
+                Task::RunLint => server.run_lint(),
             },
         }
     }
@@ -313,138 +377,102 @@ fn main_loop(server: Server) -> Result<()> {
     Ok(())
 }
 
-fn on_request(req: Request, server: &mut Server) -> Result<()> {
+fn on_request<S>(req: Request, server: &mut S) -> Result<()>
+where
+    S: LspRequests + LspRequestsExtra + LspRespond,
+{
     let req = match request_cast::<request::HoverRequest>(req) {
         Ok((id, params)) => {
-            return server.handle_hover(id, params);
+            return server.respond(id, server.hover(params));
         }
         Err(req) => req,
     };
     let req = match request_cast::<request::Completion>(req) {
         Ok((id, params)) => {
-            return server.handle_completion(id, params);
+            return server.respond(id, server.completion(params));
         }
         Err(req) => req,
     };
     let req = match request_cast::<request::References>(req) {
         Ok((id, params)) => {
-            return server.handle_references(id, params);
+            return server.respond(id, server.references(params));
         }
         Err(req) => req,
     };
     let req = match request_cast::<request::GotoDefinition>(req) {
         Ok((id, params)) => {
-            return server.handle_gotodefinition(id, params);
+            return server.respond(id, server.goto_definition(params));
         }
         Err(req) => req,
     };
     let req = match request_cast::<request::FoldingRangeRequest>(req) {
         Ok((id, params)) => {
-            return server.handle_folding_range_request(id, params);
+            return server.respond(id, server.folding_range(params));
         }
         Err(req) => req,
     };
     let req = match request_cast::<request::DocumentSymbolRequest>(req) {
         Ok((id, params)) => {
-            return server.handle_document_symbol_request(id, params);
+            return server.respond(id, server.document_symbol(params));
         }
         Err(req) => req,
     };
     let req = match request_cast::<request::WorkspaceSymbol>(req) {
         Ok((id, params)) => {
-            return server.handle_workspace_symbol(id, params);
+            return server.respond(id, server.workspace_symbol(params));
         }
         Err(req) => req,
     };
     match request_cast::<StatusRequest>(req) {
         Ok((id, _)) => {
-            return server.handle_status_request(id);
+            return server.respond(id, server.status());
         }
         Err(req) => req,
     };
     Ok(())
 }
 
-fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
+#[allow(clippy::needless_return)]
+fn on_notification<N: LspNotification>(not: Notification, server: &mut N) {
     let not = match notification_cast::<notification::DidOpenTextDocument>(not) {
         Ok(params) => {
-            return server.handle_did_open_text_document(params);
+            return server.did_open_text_document(params);
         }
         Err(not) => not,
     };
     let not = match notification_cast::<notification::DidCloseTextDocument>(not) {
         Ok(params) => {
-            return server.handle_did_close_text_document(params);
+            return server.did_close_text_document(params);
         }
         Err(not) => not,
     };
     match notification_cast::<notification::DidChangeTextDocument>(not) {
         Ok(params) => {
-            return server.handle_did_change_text_document(params);
+            return server.did_change_text_document(params);
         }
         Err(not) => not,
     };
-
-    Ok(())
 }
 
 impl Server {
-    fn respond<R>(&self, id: RequestId, response: R) -> Result<()>
-    where
-        R: Serialize + std::fmt::Debug,
-    {
-        debug!("sending response: {:?}", response);
-
-        self.connection
-            .sender
-            .send(Message::Response(Response::new_ok(id, response)))
-            .map_err(|err| err.into())
-    }
-
-    fn notify<N>(&self, params: N::Params) -> Result<()>
-    where
-        N: notification::Notification,
-        N::Params: Serialize,
-    {
-        self.connection
-            .sender
-            .send(Message::Notification(Notification::new(
-                N::METHOD.into(),
-                params,
-            )))
-            .map_err(|err| err.into())
-    }
-
-    fn add_task(&self, task: Task) -> Result<()> {
+    fn add_task(&self, task: Task) {
         debug!("adding task: {:?}", task);
 
-        self.tasks.sender.send(task)?;
-        Ok(())
+        self.tasks
+            .sender
+            .send(task)
+            .expect("could not enqueue task");
     }
+}
 
-    fn handle_status_request(&self, id: lsp_server::RequestId) -> Result<()> {
-        // This function does not accept parameters since `StatusRequest` is empty.
-        assert_eq_size!(StatusRequest, ());
-        self.respond(
-            id,
-            StatusResponse {
-                is_idle: self.tasks.receiver.is_empty(),
-            },
-        )
-    }
-
-    fn handle_hover(
-        &self,
-        id: lsp_server::RequestId,
-        params: TextDocumentPositionParams,
-    ) -> Result<()> {
+impl LspRequests for Server {
+    fn hover(&self, params: TextDocumentPositionParams) -> Option<Hover> {
         let uri = params.text_document.uri;
         let document = match self.documents.get(&uri) {
             Some(document) => document.document.all(),
             None => {
                 info!("did not find file '{}' in database", &uri);
-                self.respond(id, Option::<HoverContents>::None)?;
-                return Ok(());
+                return None;
             }
         };
 
@@ -454,17 +482,14 @@ impl Server {
             .iter()
             .min_by(|x, y| x.offsets.len().cmp(&y.offsets.len()));
 
-        let result = node.map(|node| Hover {
+        node.map(|node| Hover {
             // TODO(bbannier): Maybe just introduce a `Into<MarkedString>` for the data.
             contents: HoverContents::Array(vec![MarkedString::String(pretty(&node))]),
             range: Some(node.range),
-        });
-
-        self.respond(id, result)?;
-        Ok(())
+        })
     }
 
-    fn handle_completion(&self, id: lsp_server::RequestId, params: CompletionParams) -> Result<()> {
+    fn completion(&self, params: CompletionParams) -> Option<CompletionResponse> {
         // Do a simple check whether we are actually completing a link. We only check whether the
         // character before the completion position is a literal `](`.
         let good_position = match self
@@ -474,21 +499,32 @@ impl Server {
             None => false, // Document unknown.
             Some(document) => {
                 let position = &params.text_document_position.position;
-                let character: usize = position.character.try_into()?;
+                let character: usize = match position.character.try_into() {
+                    Ok(character) => character,
+                    Err(_err) => {
+                        // TODO(bbannier): log the error.
+                        return None;
+                    }
+                };
                 character >= 2
                     && document
                         .document
                         .all()
                         .text
                         .lines()
-                        .nth(position.line.try_into()?)
+                        .nth(match position.line.try_into() {
+                            Ok(character) => character,
+                            Err(_err) => {
+                                // TODO(bbannier): log the error.
+                                return None;
+                            }
+                        })
                         .unwrap()[character - 2..character]
                         == *"]("
             }
         };
         if !good_position {
-            self.respond(id, Vec::<CompletionItem>::new())?;
-            return Ok(());
+            return None;
         }
 
         // For now just complete anchors.
@@ -526,11 +562,10 @@ impl Server {
             .map(|(label, detail)| CompletionItem::new_simple(label, detail.into()))
             .collect::<Vec<CompletionItem>>();
 
-        self.respond(id, items)?;
-        Ok(())
+        Some(CompletionResponse::from(items))
     }
 
-    fn handle_references(&self, id: lsp_server::RequestId, params: ReferenceParams) -> Result<()> {
+    fn references(&self, params: ReferenceParams) -> Option<Vec<Location>> {
         let text_document_position = params.text_document_position;
 
         let nodes: Vec<_> = self
@@ -577,9 +612,8 @@ impl Server {
             }) {
             Some((anchor, range)) => (anchor, range),
             _ => {
-                // No anchor found at position, return empty result.
-                self.respond(id, Option::<Vec<Location>>::None)?;
-                return Ok(());
+                // No anchor found at position, return null result.
+                return None;
             }
         };
 
@@ -592,7 +626,7 @@ impl Server {
             vec![]
         };
 
-        let result =
+        Some(
             self.documents
                 .iter()
                 .flat_map(move |(uri, document)| {
@@ -616,19 +650,15 @@ impl Server {
                     )
                 })
                 .chain(declaration.iter().cloned())
-                .collect::<Vec<_>>();
-
-        self.respond(id, result)?;
-        Ok(())
+                .collect(),
+        )
     }
 
-    fn handle_gotodefinition(
+    fn goto_definition(
         &self,
-        id: lsp_server::RequestId,
         params: TextDocumentPositionParams,
-    ) -> Result<()> {
-        let result: Option<request::GotoDefinitionResponse> = self
-            .documents
+    ) -> Option<request::GotoDefinitionResponse> {
+        self.documents
             .get(&params.text_document.uri)
             .and_then(|document| {
                 // Extract any link at the current position.
@@ -646,48 +676,40 @@ impl Server {
             .and_then(|dest| {
                 get_destination(&self.documents, &params.text_document.uri, dest)
                     .map(|location| location.into())
-            });
-
-        self.respond(id, result)?;
-        Ok(())
+            })
     }
 
-    fn handle_folding_range_request(
-        &self,
-        id: lsp_server::RequestId,
-        params: FoldingRangeParams,
-    ) -> Result<()> {
-        let result: Option<Vec<_>> =
-            self.documents
-                .get(&params.text_document.uri)
-                .map(|document| {
-                    let nodes = document.document.all().parsed.nodes();
+    fn folding_range(&self, params: FoldingRangeParams) -> Option<Vec<FoldingRange>> {
+        self.documents
+            .get(&params.text_document.uri)
+            .map(|document| {
+                let nodes = document.document.all().parsed.nodes();
 
-                    let last_node = nodes.iter().max_by_key(|node| node.offsets.end);
+                let last_node = nodes.iter().max_by_key(|node| node.offsets.end);
 
-                    let headings = {
-                        let mut xs = nodes
-                            .iter()
-                            .filter_map(|node| match &node.data {
-                                m::Event::Start(m::Tag::Heading(level)) => Some((level, node)),
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>();
-
-                        // Ensure correct ordering as we use these to look up the next section below.
-                        xs.sort_unstable_by_key(|(_, x)| x.offsets.start);
-
-                        xs
-                    };
-
-                    nodes
+                let headings = {
+                    let mut xs = nodes
                         .iter()
                         .filter_map(|node| match &node.data {
-                            m::Event::Start(m::Tag::Heading(level)) => {
-                                // Translate headings into sections.
+                            m::Event::Start(m::Tag::Heading(level)) => Some((level, node)),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
 
-                                // We can reuse a heading's start tag, but need to generate a corresponding end tag.
-                                let end =
+                    // Ensure correct ordering as we use these to look up the next section below.
+                    xs.sort_unstable_by_key(|(_, x)| x.offsets.start);
+
+                    xs
+                };
+
+                nodes
+                    .iter()
+                    .filter_map(|node| match &node.data {
+                        m::Event::Start(m::Tag::Heading(level)) => {
+                            // Translate headings into sections.
+
+                            // We can reuse a heading's start tag, but need to generate a corresponding end tag.
+                            let end =
                                     headings
                                         .iter()
                                         .skip_while(|(_, n)| n.range != node.range)
@@ -708,56 +730,69 @@ impl Server {
                                     .line,
                             );
 
-                                Some(FoldingRange {
-                                    start_line: node.range.start.line,
-                                    start_character: None,
-                                    end_line: end,
-                                    end_character: None,
-                                    kind: Some(FoldingRangeKind::Region),
-                                })
-                            }
-                            _ => None,
-                        })
-                        .collect()
-                });
-
-        self.respond(id, result)?;
-        Ok(())
-    }
-
-    fn handle_document_symbol_request(
-        &self,
-        id: RequestId,
-        params: DocumentSymbolParams,
-    ) -> Result<()> {
-        self.respond(
-            id,
-            get_symbols(&self.documents, &params.text_document.uri)
-                .map(DocumentSymbolResponse::from),
-        )?;
-        Ok(())
-    }
-
-    fn handle_workspace_symbol(&self, id: RequestId, params: WorkspaceSymbolParams) -> Result<()> {
-        let result: Vec<_> = self
-            .documents
-            .keys()
-            .map(|uri| match get_symbols(&self.documents, uri) {
-                Some(symbols) => symbols
-                    .iter()
-                    .filter(|symbol: &&SymbolInformation| symbol.name.contains(&params.query))
-                    .cloned()
-                    .collect::<Vec<_>>(),
-                None => vec![],
+                            Some(FoldingRange {
+                                start_line: node.range.start.line,
+                                start_character: None,
+                                end_line: end,
+                                end_character: None,
+                                kind: Some(FoldingRangeKind::Region),
+                            })
+                        }
+                        _ => None,
+                    })
+                    .collect()
             })
-            .flatten()
-            .collect();
-
-        self.respond(id, result)?;
-        Ok(())
     }
 
-    fn handle_did_open_text_document(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
+    fn document_symbol(&self, params: DocumentSymbolParams) -> Option<DocumentSymbolResponse> {
+        get_symbols(&self.documents, &params.text_document.uri).map(DocumentSymbolResponse::from)
+    }
+
+    fn workspace_symbol(&self, params: WorkspaceSymbolParams) -> Option<Vec<SymbolInformation>> {
+        Some(
+            self.documents
+                .keys()
+                .map(|uri| match get_symbols(&self.documents, uri) {
+                    Some(symbols) => symbols
+                        .iter()
+                        .filter(|symbol: &&SymbolInformation| symbol.name.contains(&params.query))
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                    None => vec![],
+                })
+                .flatten()
+                .collect(),
+        )
+    }
+}
+
+impl LspRequestsExtra for Server {
+    fn status(&self) -> Option<StatusResponse> {
+        // This function does not accept parameters since `StatusRequest` is empty.
+        assert_eq_size!(StatusRequest, ());
+
+        Some(StatusResponse {
+            is_idle: self.tasks.receiver.is_empty(),
+        })
+    }
+}
+
+impl LspRespond for Server {
+    fn respond<R>(&self, id: RequestId, response: R) -> Result<()>
+    where
+        R: Serialize + std::fmt::Debug,
+    {
+        debug!("sending response: {:?}", response);
+
+        self.connection
+            .sender
+            .send(Message::Response(Response::new_ok(id, response)))
+            .map_err(|err| err.into())
+    }
+}
+
+impl LspNotification for Server {
+    fn did_open_text_document(&mut self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
         let version = params.text_document.version;
@@ -771,40 +806,46 @@ impl Server {
         self.add_task(Task::UpdateDocument(uri, text, Some(version)))
     }
 
-    fn handle_did_close_text_document(
-        &mut self,
-        _params: DidCloseTextDocumentParams,
-    ) -> Result<()> {
+    fn did_close_text_document(&mut self, _params: DidCloseTextDocumentParams) {
         self.open_document = None;
-
-        Ok(())
     }
 
-    fn handle_did_change_text_document(
-        &mut self,
-        mut params: DidChangeTextDocumentParams,
-    ) -> Result<()> {
+    fn did_change_text_document(&mut self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
-        let text = params
-            .content_changes
-            .pop()
-            .ok_or_else(|| "empty changes".to_string())?
-            .text;
-
         let version = params.text_document.version;
+
+        for changes in params.content_changes {
+            self.add_task(Task::UpdateDocument(uri.clone(), changes.text, version));
+        }
 
         if let Some(document) = self.documents.get_mut(&uri) {
             document.updating = true;
         }
-
-        self.add_task(Task::UpdateDocument(uri, text, version))
     }
+}
 
-    fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
+impl LspNotify for Server {
+    fn notify<N>(&self, params: N::Params) -> Result<()>
+    where
+        N: notification::Notification,
+        N::Params: Serialize,
+    {
+        self.connection
+            .sender
+            .send(Message::Notification(Notification::new(
+                N::METHOD.into(),
+                params,
+            )))
+            .map_err(|err| err.into())
+    }
+}
+
+impl ServerExecution for Server {
+    fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) {
         if let Some(document) = self.documents.get_mut(&uri) {
             if document.version > version {
                 info!("not updating {} as more recent version is known", &uri);
-                return Ok(());
+                return;
             }
 
             if document.document.all().text == text {
@@ -813,7 +854,7 @@ impl Server {
                     &uri
                 );
                 document.updating = false;
-                return Ok(());
+                return;
             }
         }
 
@@ -848,7 +889,6 @@ impl Server {
                     document,
                     (uri.clone(), source_range),
                 ))))
-                .ok();
             })
             .collect::<Vec<_>>();
 
@@ -865,10 +905,10 @@ impl Server {
         self.dirty = true;
 
         // Schedule linter run.
-        self.add_task(Task::RunLint)
+        self.add_task(Task::RunLint);
     }
 
-    fn load_file(&mut self, uri: Url, source: (Url, Range)) -> Result<()> {
+    fn load_file(&mut self, uri: Url, source: (Url, Range)) {
         let document = match std::fs::read_to_string(uri.to_file_path().unwrap()) {
             Ok(text) => text,
             Err(err) => {
@@ -883,15 +923,15 @@ impl Server {
                     ));
                 }
 
-                return Ok(());
+                return;
             }
         };
 
         // This document does not exist and cannot be `updating`.
-        self.add_task(Task::UpdateDocument(uri, document, None))
+        self.add_task(Task::UpdateDocument(uri, document, None));
     }
 
-    fn run_lint(&mut self) -> Result<()> {
+    fn run_lint(&mut self) {
         if self.documents.iter().any(|(_, document)| document.updating) {
             debug!("documents are still updating, defering linting");
             return self.add_task(Task::RunLint);
@@ -899,7 +939,7 @@ impl Server {
 
         if !self.dirty {
             debug!("skipping redundant linting run");
-            return Ok(());
+            return;
         }
 
         check_references(&mut self.documents);
@@ -915,8 +955,6 @@ impl Server {
                 ))
             });
         }
-
-        Ok(())
     }
 }
 
@@ -936,6 +974,7 @@ fn pretty_link(link_type: m::LinkType, dest: &m::CowStr, title: &m::CowStr) -> S
 
     let mut result = vec![link_type];
     if !dest.is_empty() {
+        result.push(format!("destination: {}", dest));
         result.push(format!("destination: {}", dest));
     }
     if !title.is_empty() {
@@ -1396,7 +1435,7 @@ mod tests {
                     context: None,
                 })
                 .unwrap(),
-            Some(CompletionResponse::from(vec![])),
+            None,
             "Completion in the middle of reference should not complete anything",
         );
 
@@ -1410,7 +1449,7 @@ mod tests {
                     context: None,
                 })
                 .unwrap(),
-            Some(CompletionResponse::from(vec![])),
+            None,
             "Completion at heading should not complete anything"
         );
     }
