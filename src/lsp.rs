@@ -196,9 +196,11 @@ fn check_references(documents: &mut Documents) {
 
 struct Server {
     connection: Connection,
-    tasks: Tasks,
-    documents: Documents,
     root_uri: Url,
+
+    tasks: Tasks,
+
+    documents: Documents,
     dirty: bool,
     open_document: Option<Url>,
 }
