@@ -59,7 +59,7 @@ fn get_linebreaks<P: Into<String>>(input: P) -> Vec<usize> {
 
 type AstNodes<'a> = Vec<Node<'a>>;
 
-fn try_from_offset(offset: std::ops::Range<usize>, linebreaks: &[usize]) -> Range {
+fn from_offsets(offset: std::ops::Range<usize>, linebreaks: &[usize]) -> Range {
     Range::new(
         to_position(offset.start, &linebreaks),
         to_position(offset.end, &linebreaks),
@@ -71,7 +71,7 @@ pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> AstNodes<'a> {
         .into_offset_iter()
         .map(|(event, range)| Node {
             data: event,
-            range: try_from_offset(range.clone(), &linebreaks),
+            range: from_offsets(range.clone(), &linebreaks),
             offsets: range,
             anchor: None,
         })
