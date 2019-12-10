@@ -113,6 +113,22 @@ fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation
     })
 }
 
+fn get_link_at<'a>(documents: &'a Documents, uri: &Url, position: &Position) -> Option<&'a str> {
+    documents.get(uri).and_then(|document| {
+        // Extract any link at the current position.
+        document
+            .document
+            .all()
+            .parsed
+            .at(&position)
+            .iter()
+            .find_map(|node| match &node.data {
+                m::Event::Start(m::Tag::Link(_, dest, _)) => Some(dest.as_ref()),
+                _ => None,
+            })
+    })
+}
+
 fn get_destination(documents: &Documents, source: &Url, dest: &str) -> Option<Location> {
     from_reference(dest, source).and_then(|(uri, anchor)| {
         // Obtain dest node and create result.
@@ -627,26 +643,13 @@ impl Server {
         id: lsp_server::RequestId,
         params: TextDocumentPositionParams,
     ) -> Result<()> {
-        let result: Option<request::GotoDefinitionResponse> = self
-            .documents
-            .get(&params.text_document.uri)
-            .and_then(|document| {
-                // Extract any link at the current position.
-                document
-                    .document
-                    .all()
-                    .parsed
-                    .at(&params.position)
-                    .iter()
-                    .find_map(|node| match &node.data {
-                        m::Event::Start(m::Tag::Link(_, dest, _)) => Some(dest.as_ref()),
-                        _ => None,
-                    })
-            })
-            .and_then(|dest| {
-                get_destination(&self.documents, &params.text_document.uri, dest)
-                    .map(|location| location.into())
-            });
+        let result: Option<request::GotoDefinitionResponse> =
+            get_link_at(&self.documents, &params.text_document.uri, &params.position).and_then(
+                |dest| {
+                    get_destination(&self.documents, &params.text_document.uri, dest)
+                        .map(|location| location.into())
+                },
+            );
 
         self.respond(id, result)?;
         Ok(())
