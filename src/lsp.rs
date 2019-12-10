@@ -101,7 +101,7 @@ fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation
             .iter()
             .filter_map(|node: &ast::Node| match &node.anchor {
                 Some(_) => Some(SymbolInformation {
-                    name: document.document.all().text[node.offsets.start..node.offsets.end].into(),
+                    name: document.document.all().text[node.offsets.clone()].into(),
                     location: Location::new(uri.clone(), node.range),
                     kind: SymbolKind::String,
                     deprecated: None,
