@@ -12,6 +12,6 @@ See [section 1](#this-is-the-big-section) and also the [other section](#this-is-
 * list
 * with `inline code()`
 
-```
+```.cpp
 void code_block();
 ```
