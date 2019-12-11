@@ -188,7 +188,7 @@ impl<'a> From<&'a str> for ParsedDocument<'a> {
     }
 }
 
-fn anchor(text: &str) -> String {
+pub fn anchor(text: &str) -> String {
     let re = Regex::new(r"-+").unwrap();
 
     let mut anchor = re

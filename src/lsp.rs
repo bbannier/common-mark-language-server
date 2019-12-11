@@ -246,6 +246,7 @@ fn server_capabilities() -> ServerCapabilities {
         folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
         document_symbol_provider: Some(true),
         workspace_symbol_provider: Some(true),
+        rename_provider: Some(RenameProviderCapability::Simple(true)),
         ..Default::default()
     }
 }
@@ -362,6 +363,12 @@ fn on_request(req: Request, server: &mut Server) -> Result<()> {
     let req = match request_cast::<request::WorkspaceSymbol>(req) {
         Ok((id, params)) => {
             return server.handle_workspace_symbol(id, params);
+        }
+        Err(req) => req,
+    };
+    let req = match request_cast::<request::Rename>(req) {
+        Ok((id, params)) => {
+            return server.handle_rename(id, params);
         }
         Err(req) => req,
     };
@@ -753,6 +760,124 @@ impl Server {
         Ok(())
     }
 
+    fn handle_rename(&self, id: RequestId, params: RenameParams) -> Result<()> {
+        let source_uri = params.text_document_position.text_document.uri;
+        let document = match self.documents.get(&source_uri) {
+            Some(document) => document.document.all().parsed,
+            None => {
+                info!("did not find file '{}' in database", &source_uri);
+                self.respond(id, Option::<WorkspaceEdit>::None)?;
+                return Ok(());
+            }
+        };
+
+        // We only support renaming headings so select `Heading` node at position.
+        let nodes = document.at(&params.text_document_position.position);
+
+        // Check that we have both a `Heading` and some `Text` at the position.
+        if !(nodes.iter().any(|node| match &node.data {
+            m::Event::Start(m::Tag::Heading(_)) => true,
+            _ => false,
+        }) && nodes.iter().any(|node| match &node.data {
+            m::Event::Text(_) => true,
+            _ => false,
+        })) {
+            self.respond(id, Option::<WorkspaceEdit>::None)?;
+            return Ok(());
+        }
+
+        let header_text_node = nodes
+            .iter()
+            .find(|node| match &node.data {
+                m::Event::Text(_) => true,
+                _ => false,
+            })
+            .expect("selection should contain a 'Text' node at this point");
+
+        let header_anchor = nodes
+            .iter()
+            .find_map(|node| match &node.data {
+                m::Event::Start(m::Tag::Heading(_)) => Some(
+                    node.anchor
+                        .as_ref()
+                        .expect("headings should always contain a generated anchor")
+                        .clone(),
+                ),
+                _ => None,
+            })
+            .expect("selection should contain a 'Heading' node at this point");
+
+        // Find all references to the heading.
+        let source_uri_ = source_uri.clone();
+        let references =
+            self.documents
+                .iter()
+                .flat_map(|(referencing_uri, document)| {
+                    let source_uri = source_uri_.clone();
+                    let header_anchor = header_anchor.clone();
+
+                    document.document.all().parsed.nodes().iter().filter_map(
+                        move |node| match &node.data {
+                            m::Event::Start(m::Tag::Link(_, dest, _)) => {
+                                match from_reference(dest, referencing_uri) {
+                                    Some((target_uri, target_anchor)) => {
+                                        if target_uri == source_uri
+                                            && target_anchor == Some(&header_anchor)
+                                        {
+                                            Some((referencing_uri.clone(), node))
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    _ => None,
+                                }
+                            }
+                            _ => None,
+                        },
+                    )
+                });
+
+        // Compute anchor edits.
+        let new_name = params.new_name;
+        let new_anchor = ast::anchor(&new_name);
+
+        let mut edits = HashMap::new();
+
+        // Insert edit for the heading text.
+        edits.insert(
+            source_uri,
+            vec![TextEdit::new(header_text_node.range, new_name)],
+        );
+
+        for (url, node) in references {
+            if !edits.contains_key(&url) {
+                edits.insert(url.clone(), vec![]);
+            }
+
+            // Compute the original range of the reference.
+            //
+            // TODO(bbannier): Anchors can live across line breaks. Do computations in offsets
+            // here.
+            //
+            // TODO(bbannier): In general the destination part of a link can contain spurious
+            // whitespace which we currently do not handle. Add some normalization here.
+            let end = Position::new(
+                node.range.end.line,
+                node.range.end.character - 1, /* ] */
+            );
+            let start = Position::new(end.line, end.character - (header_anchor.len() as u64));
+
+            edits
+                .get_mut(&url)
+                .expect("default value should exist in map")
+                .push(TextEdit::new(Range::new(start, end), new_anchor.clone()));
+        }
+
+        self.respond(id, WorkspaceEdit::new(edits))?;
+
+        Ok(())
+    }
+
     fn handle_did_open_text_document(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
@@ -1022,6 +1147,7 @@ fn make_relative(file: &Url, base: &Url) -> Option<String> {
         .ok()
 }
 
+/// Get link target (file[, anchor]) from a reference in some file.
 fn from_reference<'a>(reference: &'a str, from: &Url) -> Option<(Url, Option<&'a str>)> {
     let base = {
         let mut path = from.to_file_path().ok()?;
@@ -1866,6 +1992,176 @@ mod tests {
                 deprecated: None,
                 container_name: None,
             },]),
+        );
+    }
+
+    #[test]
+    fn test_rename() {
+        let server = TestServer::new();
+
+        let file1 = Url::from_file_path("/file1.md").unwrap();
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                file1.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                      # abc def
+                      [abc def](#abc-def)
+                      ",
+                ),
+            ),
+        });
+
+        let file2 = Url::from_file_path("/file2.md").unwrap();
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                file2.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                      [abc def](file1.md#abc-def)
+                      ",
+                ),
+            ),
+        });
+
+        assert_eq!(
+            server
+                .send_request::<request::Rename>(RenameParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file1.clone()),
+                        Position::new(1, 3)
+                    ),
+                    new_name: "foo bar".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                })
+                .unwrap(),
+            Some(WorkspaceEdit::new({
+                let mut edits = HashMap::new();
+
+                edits.insert(
+                    file1.clone(),
+                    vec![
+                        TextEdit::new(
+                            Range::new(Position::new(1, 2), Position::new(1, 9)),
+                            "foo bar".into(),
+                        ),
+                        TextEdit::new(
+                            Range::new(Position::new(2, 11), Position::new(2, 18)),
+                            "foo-bar".into(),
+                        ),
+                    ],
+                );
+
+                edits.insert(
+                    file2.clone(),
+                    vec![TextEdit::new(
+                        Range::new(Position::new(1, 19), Position::new(1, 26)),
+                        "foo-bar".into(),
+                    )],
+                );
+
+                edits
+            }))
+        );
+
+        let file3 = Url::from_file_path("/file3.md").unwrap();
+        server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem::new(
+                file3.clone(),
+                "markdown".into(),
+                1,
+                dedent(
+                    "
+                      # h1
+                      ## h2
+                      ### h3
+                      ",
+                ),
+            ),
+        });
+
+        assert_eq!(
+            server
+                .send_request::<request::Rename>(RenameParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file3.clone()),
+                        Position::new(1, 2)
+                    ),
+                    new_name: "H1".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                })
+                .unwrap(),
+            Some(WorkspaceEdit::new({
+                let mut edits = HashMap::new();
+                edits.insert(
+                    file3.clone(),
+                    vec![TextEdit::new(
+                        Range::new(Position::new(1, 2), Position::new(1, 4)),
+                        "H1".into(),
+                    )],
+                );
+                edits
+            }))
+        );
+
+        assert_eq!(
+            server
+                .send_request::<request::Rename>(RenameParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file3.clone()),
+                        Position::new(2, 3)
+                    ),
+                    new_name: "H2".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                })
+                .unwrap(),
+            Some(WorkspaceEdit::new({
+                let mut edits = HashMap::new();
+                edits.insert(
+                    file3.clone(),
+                    vec![TextEdit::new(
+                        Range::new(Position::new(2, 3), Position::new(2, 5)),
+                        "H2".into(),
+                    )],
+                );
+                edits
+            }))
+        );
+
+        assert_eq!(
+            server
+                .send_request::<request::Rename>(RenameParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file3.clone()),
+                        Position::new(3, 4)
+                    ),
+                    new_name: "H3".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                })
+                .unwrap(),
+            Some(WorkspaceEdit::new({
+                let mut edits = HashMap::new();
+                edits.insert(
+                    file3.clone(),
+                    vec![TextEdit::new(
+                        Range::new(Position::new(3, 4), Position::new(3, 6)),
+                        "H3".into(),
+                    )],
+                );
+                edits
+            }))
         );
     }
 

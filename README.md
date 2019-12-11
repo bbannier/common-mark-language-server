@@ -11,6 +11,7 @@ The following features are implemented at the moment,
 * completion for intra-document links
 * jump to definition
 * find references
+* renaming of headings renames references across document
 * folding
 * document and workspace symbol
 * basic broken link linting
