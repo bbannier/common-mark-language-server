@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "common-mark-language-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crossbeam-channel 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "flexi_logger 0.14.5 (registry+https://github.com/rust-lang/crates.io-index)",
