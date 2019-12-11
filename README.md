@@ -14,6 +14,7 @@ The following features are implemented at the moment,
 * renaming of headings renames references across document
 * folding
 * document and workspace symbol
+* heuristic loading of other documents (detected via references in opened documents)
 * basic broken link linting
 
 ## Installation
