@@ -188,6 +188,7 @@ fn check_references(documents: &mut Documents) {
                                 None, // source
                                 format!("reference '{}' not found", dest),
                                 None, // related info
+                                None, // tag
                             )),
                             Some(_) => None,
                         }
@@ -254,17 +255,9 @@ pub fn run_server(connection: Connection) -> Result<()> {
     let initialize_params: InitializeParams = serde_json::from_value(initialize_params)?;
 
     let cwd = Url::from_file_path(std::env::current_dir()?).ok();
-    let root_path = {
-        if let Some(root_path) = initialize_params.root_path {
-            Url::from_file_path(root_path).ok()
-        } else {
-            None
-        }
-    };
-
     let root_uri = initialize_params
         .root_uri
-        .unwrap_or_else(|| root_path.unwrap_or_else(|| cwd.expect("could not determine root_uri")));
+        .unwrap_or_else(|| cwd.expect("could not determine root_uri"));
 
     let tasks = Tasks::new();
 
@@ -883,6 +876,7 @@ impl Server {
                         None,                                                          // source
                         format!("could not read file `{}`: {}", uri, err.to_string()), // message
                         None, // related info
+                        None, // tag
                     ));
                 }
 
@@ -915,6 +909,7 @@ impl Server {
                 self.notify::<notification::PublishDiagnostics>(PublishDiagnosticsParams::new(
                     open_document.clone(),
                     document.diagnostics.clone(),
+                    document.version,
                 ))
             });
         }
@@ -1104,10 +1099,11 @@ mod tests {
                     capabilities: ClientCapabilities::default(),
                     initialization_options: None,
                     process_id: None,
-                    root_path: None,
                     root_uri: None,
+                    root_path: None,
                     trace: None,
                     workspace_folders: None,
+                    client_info: None,
                 })
                 .unwrap();
 
@@ -1380,6 +1376,12 @@ mod tests {
                         Position::new(2, 12),
                     ),
                     context: None,
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                    partial_result_params: PartialResultParams {
+                        partial_result_token: None
+                    },
                 })
                 .unwrap(),
             Some(CompletionResponse::from(vec![CompletionItem::new_simple(
@@ -1397,6 +1399,12 @@ mod tests {
                         Position::new(2, 2),
                     ),
                     context: None,
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                    partial_result_params: PartialResultParams {
+                        partial_result_token: None
+                    },
                 })
                 .unwrap(),
             Some(CompletionResponse::from(vec![])),
@@ -1411,6 +1419,12 @@ mod tests {
                         Position::new(1, 0),
                     ),
                     context: None,
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                    partial_result_params: PartialResultParams {
+                        partial_result_token: None
+                    },
                 })
                 .unwrap(),
             Some(CompletionResponse::from(vec![])),
@@ -1454,6 +1468,9 @@ mod tests {
                     context: ReferenceContext {
                         include_declaration: false,
                     },
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
                 })
                 .unwrap(),
             None
@@ -1468,6 +1485,9 @@ mod tests {
                     },
                     context: ReferenceContext {
                         include_declaration: true,
+                    },
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
                     },
                 })
                 .unwrap(),
@@ -1497,6 +1517,9 @@ mod tests {
                     context: ReferenceContext {
                         include_declaration: false,
                     },
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
                 })
                 .unwrap(),
             Some(vec![
@@ -1520,6 +1543,9 @@ mod tests {
                     },
                     context: ReferenceContext {
                         include_declaration: true,
+                    },
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
                     },
                 })
                 .unwrap(),
@@ -1548,6 +1574,9 @@ mod tests {
                     },
                     context: ReferenceContext {
                         include_declaration: true,
+                    },
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
                     },
                 })
                 .unwrap(),
@@ -1662,7 +1691,13 @@ mod tests {
         assert_eq!(
             server
                 .send_request::<request::FoldingRangeRequest>(FoldingRangeParams {
-                    text_document: TextDocumentIdentifier::new(uri)
+                    text_document: TextDocumentIdentifier::new(uri),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                    partial_result_params: PartialResultParams {
+                        partial_result_token: None
+                    },
                 })
                 .unwrap(),
             Some(vec![
@@ -1771,6 +1806,12 @@ mod tests {
             server
                 .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
                     query: "".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                    partial_result_params: PartialResultParams {
+                        partial_result_token: None
+                    },
                 })
                 .unwrap()
                 .map(|symbols| {
@@ -1807,6 +1848,12 @@ mod tests {
             server
                 .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
                     query: "foo".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                    partial_result_params: PartialResultParams {
+                        partial_result_token: None
+                    },
                 })
                 .unwrap(),
             Some(vec![SymbolInformation {
@@ -1853,7 +1900,9 @@ mod tests {
                     None,
                     "reference 'bar.md' not found".into(),
                     None,
-                )]
+                    None,
+                )],
+                Some(1),
             )
         );
     }
