@@ -856,9 +856,6 @@ impl Server {
 
             // Compute the original range of the reference.
             //
-            // TODO(bbannier): Anchors can live across line breaks. Do computations in offsets
-            // here.
-            //
             // TODO(bbannier): In general the destination part of a link can contain spurious
             // whitespace which we currently do not handle. Add some normalization here.
             let end = Position::new(
