@@ -324,55 +324,55 @@ fn main_loop(server: Server) -> Result<()> {
 }
 
 fn on_request(req: Request, server: &mut Server) -> Result<()> {
-    let req = match request_cast::<request::HoverRequest>(req) {
+    let _req = match request_cast::<request::HoverRequest>(req) {
         Ok((id, params)) => {
             return server.handle_hover(id, params);
         }
         Err(req) => req,
     };
-    let req = match request_cast::<request::Completion>(req) {
+    let _req = match request_cast::<request::Completion>(_req) {
         Ok((id, params)) => {
             return server.handle_completion(id, params);
         }
         Err(req) => req,
     };
-    let req = match request_cast::<request::References>(req) {
+    let _req = match request_cast::<request::References>(_req) {
         Ok((id, params)) => {
             return server.handle_references(id, params);
         }
         Err(req) => req,
     };
-    let req = match request_cast::<request::GotoDefinition>(req) {
+    let _req = match request_cast::<request::GotoDefinition>(_req) {
         Ok((id, params)) => {
             return server.handle_gotodefinition(id, params);
         }
         Err(req) => req,
     };
-    let req = match request_cast::<request::FoldingRangeRequest>(req) {
+    let _req = match request_cast::<request::FoldingRangeRequest>(_req) {
         Ok((id, params)) => {
             return server.handle_folding_range_request(id, params);
         }
         Err(req) => req,
     };
-    let req = match request_cast::<request::DocumentSymbolRequest>(req) {
+    let _req = match request_cast::<request::DocumentSymbolRequest>(_req) {
         Ok((id, params)) => {
             return server.handle_document_symbol_request(id, params);
         }
         Err(req) => req,
     };
-    let req = match request_cast::<request::WorkspaceSymbol>(req) {
+    let _req = match request_cast::<request::WorkspaceSymbol>(_req) {
         Ok((id, params)) => {
             return server.handle_workspace_symbol(id, params);
         }
         Err(req) => req,
     };
-    let req = match request_cast::<request::Rename>(req) {
+    let _req = match request_cast::<request::Rename>(_req) {
         Ok((id, params)) => {
             return server.handle_rename(id, params);
         }
         Err(req) => req,
     };
-    match request_cast::<StatusRequest>(req) {
+    let _req = match request_cast::<StatusRequest>(_req) {
         Ok((id, _)) => {
             return server.handle_status_request(id);
         }
