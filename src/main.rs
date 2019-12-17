@@ -3,16 +3,22 @@ use common_mark_language_server::lsp;
 use {log::info, lsp_server::Connection, std::error::Error, structopt::StructOpt};
 
 #[derive(StructOpt)]
-struct Opt {}
+struct Opt {
+    #[structopt(long="verbosity", possible_values=&["error", "warn", "info", "debug"], default_value="info")]
+    verbosity: String,
+
+    #[structopt(long = "log-directory", default_value = "/tmp")]
+    log_directory: String,
+}
 
 fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
-    let _ = Opt::from_args();
+    let opt = Opt::from_args();
 
     // Set up logging. Because `stdio_transport` gets a lock on stdout and stdin, we must have
     // our logging only write out to stderr.
-    flexi_logger::Logger::with_env_or_str("debug")
+    flexi_logger::Logger::with_env_or_str(opt.verbosity)
         .log_to_file()
-        .directory("/tmp")
+        .directory(opt.log_directory)
         .start()?;
     info!("starting generic LSP server");
 
