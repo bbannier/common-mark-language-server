@@ -1458,7 +1458,7 @@ mod tests {
         assert_eq!(
             server
                 .send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
-                    TextDocumentIdentifier { uri: uri.clone() },
+                    TextDocumentIdentifier { uri },
                     Position::new(0, 3)
                 ))
                 .unwrap(),
@@ -1538,7 +1538,7 @@ mod tests {
             server
                 .send_request::<request::Completion>(CompletionParams {
                     text_document_position: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(uri.clone()),
+                        TextDocumentIdentifier::new(uri),
                         Position::new(1, 0),
                     ),
                     context: None,
@@ -1704,7 +1704,7 @@ mod tests {
                 })
                 .unwrap(),
             Some(vec![Location::new(
-                uri.clone(),
+                uri,
                 Range::new(Position::new(9, 0), Position::new(9, 17))
             ),])
         );
@@ -1770,12 +1770,12 @@ mod tests {
         assert_eq!(
             server
                 .send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(file2.clone()),
+                    TextDocumentIdentifier::new(file2),
                     Position::new(4, 0),
                 ))
                 .unwrap(),
             Some(request::GotoDefinitionResponse::Scalar(Location::new(
-                file1.clone(),
+                file1,
                 Range::new(Position::new(0, 0), Position::new(0, 5))
             )))
         );
@@ -1881,7 +1881,7 @@ mod tests {
                 SymbolInformation {
                     name: "## h2\n".into(),
                     location: Location::new(
-                        uri.clone(),
+                        uri,
                         Range::new(Position::new(2, 0), Position::new(3, 0))
                     ),
                     kind: SymbolKind::String,
@@ -1946,7 +1946,7 @@ mod tests {
                 SymbolInformation {
                     name: "# bar\n".into(),
                     location: Location::new(
-                        file1.clone(),
+                        file1,
                         Range::new(Position::new(1, 0), Position::new(2, 0))
                     ),
                     kind: SymbolKind::String,
@@ -1982,7 +1982,7 @@ mod tests {
             Some(vec![SymbolInformation {
                 name: "# foo\n".into(),
                 location: Location::new(
-                    file2.clone(),
+                    file2,
                     Range::new(Position::new(1, 0), Position::new(2, 0))
                 ),
                 kind: SymbolKind::String,
@@ -2042,7 +2042,7 @@ mod tests {
                 let mut edits = HashMap::new();
 
                 edits.insert(
-                    file1.clone(),
+                    file1,
                     vec![
                         TextEdit::new(
                             Range::new(Position::new(1, 2), Position::new(1, 9)),
@@ -2056,7 +2056,7 @@ mod tests {
                 );
 
                 edits.insert(
-                    file2.clone(),
+                    file2,
                     vec![TextEdit::new(
                         Range::new(Position::new(1, 19), Position::new(1, 26)),
                         "foo-bar".into(),
@@ -2151,7 +2151,7 @@ mod tests {
             Some(WorkspaceEdit::new({
                 let mut edits = HashMap::new();
                 edits.insert(
-                    file3.clone(),
+                    file3,
                     vec![TextEdit::new(
                         Range::new(Position::new(3, 4), Position::new(3, 6)),
                         "H3".into(),
