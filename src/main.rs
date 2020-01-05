@@ -1,6 +1,6 @@
 use common_mark_language_server::lsp;
 
-use {log::info, lsp_server::Connection, std::error::Error, structopt::StructOpt};
+use {anyhow::Result, log::info, lsp_server::Connection, structopt::StructOpt};
 
 #[derive(StructOpt)]
 struct Opt {
@@ -11,7 +11,7 @@ struct Opt {
     log_directory: String,
 }
 
-fn main() -> Result<(), Box<dyn Error + Sync + Send>> {
+fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     // Set up logging. Because `stdio_transport` gets a lock on stdout and stdin, we must have

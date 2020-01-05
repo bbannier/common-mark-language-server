@@ -1,5 +1,6 @@
 use {
     crate::ast,
+    anyhow::{anyhow, Result},
     crossbeam_channel::{select, Receiver, RecvError, Sender},
     log::{debug, info},
     lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
@@ -10,13 +11,10 @@ use {
     std::{
         collections::{HashMap, VecDeque},
         convert::TryInto,
-        error::Error,
         path::Path,
     },
     url::Url,
 };
-
-type Result<T> = std::result::Result<T, Box<dyn Error + Sync + Send>>;
 
 fn request_cast<R>(
     req: lsp_server::Request,
@@ -284,7 +282,7 @@ fn main_loop(server: Server) -> Result<()> {
         let event = select! {
             recv(server.connection.receiver) -> msg => match msg {
                 Ok(msg) => Event::Api(msg),
-                Err(RecvError) => return Err("client exited without shutdown".into()),
+                Err(RecvError) => return Err(anyhow!("client exited without shutdown")),
             },
             recv(server.tasks.receiver) -> task => match task {
                 Ok(task) => Event::Task(task),
@@ -903,11 +901,10 @@ impl Server {
         mut params: DidChangeTextDocumentParams,
     ) -> Result<()> {
         let uri = params.text_document.uri;
-        let text = params
-            .content_changes
-            .pop()
-            .ok_or_else(|| "empty changes".to_string())?
-            .text;
+        let text = match params.content_changes.pop() {
+            Some(t) => t.text,
+            None => return Ok(()),
+        };
 
         let version = params.text_document.version;
 
