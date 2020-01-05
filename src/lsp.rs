@@ -10,7 +10,6 @@ use {
     static_assertions::assert_eq_size,
     std::{
         collections::{HashMap, VecDeque},
-        convert::TryInto,
         path::Path,
     },
     url::Url,
@@ -322,61 +321,10 @@ fn main_loop(server: Server) -> Result<()> {
 }
 
 fn on_request(req: Request, server: &mut Server) -> Result<()> {
-    let _req = match request_cast::<request::HoverRequest>(req) {
-        Ok((id, params)) => {
-            return server.handle_hover(id, params);
-        }
-        Err(req) => req,
-    };
-    let _req = match request_cast::<request::Completion>(_req) {
-        Ok((id, params)) => {
-            return server.handle_completion(id, params);
-        }
-        Err(req) => req,
-    };
-    let _req = match request_cast::<request::References>(_req) {
-        Ok((id, params)) => {
-            return server.handle_references(id, params);
-        }
-        Err(req) => req,
-    };
-    let _req = match request_cast::<request::GotoDefinition>(_req) {
-        Ok((id, params)) => {
-            return server.handle_gotodefinition(id, params);
-        }
-        Err(req) => req,
-    };
-    let _req = match request_cast::<request::FoldingRangeRequest>(_req) {
-        Ok((id, params)) => {
-            return server.handle_folding_range_request(id, params);
-        }
-        Err(req) => req,
-    };
-    let _req = match request_cast::<request::DocumentSymbolRequest>(_req) {
-        Ok((id, params)) => {
-            return server.handle_document_symbol_request(id, params);
-        }
-        Err(req) => req,
-    };
-    let _req = match request_cast::<request::WorkspaceSymbol>(_req) {
-        Ok((id, params)) => {
-            return server.handle_workspace_symbol(id, params);
-        }
-        Err(req) => req,
-    };
-    let _req = match request_cast::<request::Rename>(_req) {
-        Ok((id, params)) => {
-            return server.handle_rename(id, params);
-        }
-        Err(req) => req,
-    };
-    let _req = match request_cast::<StatusRequest>(_req) {
-        Ok((id, _)) => {
-            return server.handle_status_request(id);
-        }
-        Err(req) => req,
-    };
-    Ok(())
+    match handle_request(req, server) {
+        None => Ok(()),
+        Some(response) => server.respond(response),
+    }
 }
 
 fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
@@ -403,15 +351,12 @@ fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
 }
 
 impl Server {
-    fn respond<R>(&self, id: RequestId, response: R) -> Result<()>
-    where
-        R: Serialize + std::fmt::Debug,
-    {
+    fn respond(&self, response: Response) -> Result<()> {
         debug!("sending response: {:?}", response);
 
         self.connection
             .sender
-            .send(Message::Response(Response::new_ok(id, response)))
+            .send(Message::Response(response))
             .map_err(|err| err.into())
     }
 
@@ -436,10 +381,10 @@ impl Server {
         Ok(())
     }
 
-    fn handle_status_request(&self, id: lsp_server::RequestId) -> Result<()> {
+    fn handle_status_request(&self, id: lsp_server::RequestId) -> Response {
         // This function does not accept parameters since `StatusRequest` is empty.
         assert_eq_size!(StatusRequest, ());
-        self.respond(
+        Response::new_ok(
             id,
             StatusResponse {
                 is_idle: self.tasks.receiver.is_empty(),
@@ -451,14 +396,13 @@ impl Server {
         &self,
         id: lsp_server::RequestId,
         params: TextDocumentPositionParams,
-    ) -> Result<()> {
+    ) -> Response {
         let uri = params.text_document.uri;
         let document = match self.documents.get(&uri) {
             Some(document) => document.document.all(),
             None => {
                 info!("did not find file '{}' in database", &uri);
-                self.respond(id, Option::<HoverContents>::None)?;
-                return Ok(());
+                return Response::new_ok(id, Option::<HoverContents>::None);
             }
         };
 
@@ -474,11 +418,10 @@ impl Server {
             range: Some(node.range),
         });
 
-        self.respond(id, result)?;
-        Ok(())
+        Response::new_ok(id, result)
     }
 
-    fn handle_completion(&self, id: lsp_server::RequestId, params: CompletionParams) -> Result<()> {
+    fn handle_completion(&self, id: lsp_server::RequestId, params: CompletionParams) -> Response {
         // Do a simple check whether we are actually completing a link. We only check whether the
         // character before the completion position is a literal `](`.
         let good_position = match self
@@ -488,21 +431,20 @@ impl Server {
             None => false, // Document unknown.
             Some(document) => {
                 let position = &params.text_document_position.position;
-                let character: usize = position.character.try_into()?;
+                let character = position.character as usize;
                 character >= 2
                     && document
                         .document
                         .all()
                         .text
                         .lines()
-                        .nth(position.line.try_into()?)
+                        .nth(position.line as usize)
                         .unwrap()[character - 2..character]
                         == *"]("
             }
         };
         if !good_position {
-            self.respond(id, Vec::<CompletionItem>::new())?;
-            return Ok(());
+            return Response::new_ok(id, Vec::<CompletionItem>::new());
         }
 
         // For now just complete anchors.
@@ -540,11 +482,10 @@ impl Server {
             .map(|(label, detail)| CompletionItem::new_simple(label, detail.into()))
             .collect::<Vec<CompletionItem>>();
 
-        self.respond(id, items)?;
-        Ok(())
+        Response::new_ok(id, items)
     }
 
-    fn handle_references(&self, id: lsp_server::RequestId, params: ReferenceParams) -> Result<()> {
+    fn handle_references(&self, id: lsp_server::RequestId, params: ReferenceParams) -> Response {
         let text_document_position = params.text_document_position;
 
         let nodes: Vec<_> = self
@@ -592,8 +533,7 @@ impl Server {
             Some((anchor, range)) => (anchor, range),
             _ => {
                 // No anchor found at position, return empty result.
-                self.respond(id, Option::<Vec<Location>>::None)?;
-                return Ok(());
+                return Response::new_ok(id, Option::<Vec<Location>>::None);
             }
         };
 
@@ -632,15 +572,14 @@ impl Server {
                 .chain(declaration.iter().cloned())
                 .collect::<Vec<_>>();
 
-        self.respond(id, result)?;
-        Ok(())
+        Response::new_ok(id, result)
     }
 
     fn handle_gotodefinition(
         &self,
         id: lsp_server::RequestId,
         params: TextDocumentPositionParams,
-    ) -> Result<()> {
+    ) -> Response {
         let result: Option<request::GotoDefinitionResponse> =
             get_link_at(&self.documents, &params.text_document.uri, &params.position).and_then(
                 |dest| {
@@ -649,15 +588,14 @@ impl Server {
                 },
             );
 
-        self.respond(id, result)?;
-        Ok(())
+        Response::new_ok(id, result)
     }
 
     fn handle_folding_range_request(
         &self,
         id: lsp_server::RequestId,
         params: FoldingRangeParams,
-    ) -> Result<()> {
+    ) -> Response {
         let result: Option<Vec<_>> =
             self.documents
                 .get(&params.text_document.uri)
@@ -722,24 +660,22 @@ impl Server {
                         .collect()
                 });
 
-        self.respond(id, result)?;
-        Ok(())
+        Response::new_ok(id, result)
     }
 
     fn handle_document_symbol_request(
         &self,
         id: RequestId,
         params: DocumentSymbolParams,
-    ) -> Result<()> {
-        self.respond(
+    ) -> Response {
+        Response::new_ok(
             id,
             get_symbols(&self.documents, &params.text_document.uri)
                 .map(DocumentSymbolResponse::from),
-        )?;
-        Ok(())
+        )
     }
 
-    fn handle_workspace_symbol(&self, id: RequestId, params: WorkspaceSymbolParams) -> Result<()> {
+    fn handle_workspace_symbol(&self, id: RequestId, params: WorkspaceSymbolParams) -> Response {
         let result: Vec<_> = self
             .documents
             .keys()
@@ -754,18 +690,16 @@ impl Server {
             .flatten()
             .collect();
 
-        self.respond(id, result)?;
-        Ok(())
+        Response::new_ok(id, result)
     }
 
-    fn handle_rename(&self, id: RequestId, params: RenameParams) -> Result<()> {
+    fn handle_rename(&self, id: RequestId, params: RenameParams) -> Response {
         let source_uri = params.text_document_position.text_document.uri;
         let document = match self.documents.get(&source_uri) {
             Some(document) => document.document.all().parsed,
             None => {
                 info!("did not find file '{}' in database", &source_uri);
-                self.respond(id, Option::<WorkspaceEdit>::None)?;
-                return Ok(());
+                return Response::new_ok(id, Option::<WorkspaceEdit>::None);
             }
         };
 
@@ -780,8 +714,7 @@ impl Server {
             m::Event::Text(_) => true,
             _ => false,
         })) {
-            self.respond(id, Option::<WorkspaceEdit>::None)?;
-            return Ok(());
+            return Response::new_ok(id, Option::<WorkspaceEdit>::None);
         }
 
         let header_text_node = nodes
@@ -868,9 +801,7 @@ impl Server {
                 .push(TextEdit::new(Range::new(start, end), new_anchor.clone()));
         }
 
-        self.respond(id, WorkspaceEdit::new(edits))?;
-
-        Ok(())
+        Response::new_ok(id, WorkspaceEdit::new(edits))
     }
 
     fn handle_did_open_text_document(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
@@ -1035,6 +966,65 @@ impl Server {
 
         Ok(())
     }
+}
+
+fn handle_request(req: Request, server: &mut Server) -> Option<Response> {
+    let _req = match request_cast::<request::HoverRequest>(req) {
+        Ok((id, params)) => {
+            return Some(server.handle_hover(id, params));
+        }
+        Err(req) => req,
+    };
+    let _req = match request_cast::<request::Completion>(_req) {
+        Ok((id, params)) => {
+            return Some(server.handle_completion(id, params));
+        }
+        Err(req) => req,
+    };
+    let _req = match request_cast::<request::References>(_req) {
+        Ok((id, params)) => {
+            return Some(server.handle_references(id, params));
+        }
+        Err(req) => req,
+    };
+    let _req = match request_cast::<request::GotoDefinition>(_req) {
+        Ok((id, params)) => {
+            return Some(server.handle_gotodefinition(id, params));
+        }
+        Err(req) => req,
+    };
+    let _req = match request_cast::<request::FoldingRangeRequest>(_req) {
+        Ok((id, params)) => {
+            return Some(server.handle_folding_range_request(id, params));
+        }
+        Err(req) => req,
+    };
+    let _req = match request_cast::<request::DocumentSymbolRequest>(_req) {
+        Ok((id, params)) => {
+            return Some(server.handle_document_symbol_request(id, params));
+        }
+        Err(req) => req,
+    };
+    let _req = match request_cast::<request::WorkspaceSymbol>(_req) {
+        Ok((id, params)) => {
+            return Some(server.handle_workspace_symbol(id, params));
+        }
+        Err(req) => req,
+    };
+    let _req = match request_cast::<request::Rename>(_req) {
+        Ok((id, params)) => {
+            return Some(server.handle_rename(id, params));
+        }
+        Err(req) => req,
+    };
+    let _req = match request_cast::<StatusRequest>(_req) {
+        Ok((id, _)) => {
+            return Some(server.handle_status_request(id));
+        }
+        Err(req) => req,
+    };
+
+    None
 }
 
 fn pretty_link(link_type: m::LinkType, dest: &m::CowStr, title: &m::CowStr) -> String {
