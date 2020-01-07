@@ -277,7 +277,6 @@ fn main_loop(server: Server) -> Result<()> {
     let mut server = server;
 
     loop {
-        #[allow(clippy::drop_copy, clippy::zero_ptr)]
         let event = select! {
             recv(server.connection.receiver) -> msg => match msg {
                 Ok(msg) => Event::Api(msg),
