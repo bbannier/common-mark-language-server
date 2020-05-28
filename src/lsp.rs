@@ -4,12 +4,23 @@ use {
     crossbeam_channel::{select, Receiver, RecvError, Sender},
     log::{debug, info},
     lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
-    lsp_types::*,
+    lsp_types::{
+        notification, request, CompletionItem, CompletionOptions, CompletionParams, Diagnostic,
+        DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+        DidOpenTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
+        FoldingRangeKind, FoldingRangeParams, FoldingRangeProviderCapability, GotoDefinitionParams,
+        GotoDefinitionResponse, Hover, HoverContents, HoverParams, InitializeParams, Location,
+        MarkedString, Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameParams,
+        RenameProviderCapability, ServerCapabilities, SymbolInformation, SymbolKind,
+        TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, WorkspaceEdit,
+        WorkspaceSymbolParams,
+    },
     pulldown_cmark as m,
     serde::{Deserialize, Serialize},
     static_assertions::assert_eq_size,
     std::{
         collections::{HashMap, VecDeque},
+        convert::TryFrom,
         path::Path,
     },
     url::Url,
@@ -235,7 +246,7 @@ fn server_capabilities() -> ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::Full)),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec!["](".into()]),
-            ..Default::default()
+            ..CompletionOptions::default()
         }),
         hover_provider: Some(true),
         references_provider: Some(true),
@@ -244,7 +255,7 @@ fn server_capabilities() -> ServerCapabilities {
         document_symbol_provider: Some(true),
         workspace_symbol_provider: Some(true),
         rename_provider: Some(RenameProviderCapability::Simple(true)),
-        ..Default::default()
+        ..ServerCapabilities::default()
     }
 }
 pub fn run_server(connection: Connection) -> Result<()> {
@@ -305,7 +316,7 @@ fn main_loop(server: Server) -> Result<()> {
                 Message::Response(_resp) => {}
             },
             Event::Task(task) => match task {
-                Task::LoadFile(uri_source) => server.load_file(uri_source.0, uri_source.1)?,
+                Task::LoadFile(uri_source) => server.load_file(uri_source.0, &uri_source.1)?,
                 Task::UpdateDocument(uri, document, version) => {
                     server.update_document(uri, document, version)?
                 }
@@ -335,7 +346,7 @@ fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
     };
     let not = match notification_cast::<notification::DidCloseTextDocument>(not) {
         Ok(params) => {
-            return server.handle_did_close_text_document(params);
+            return server.handle_did_close_text_document(&params);
         }
         Err(not) => not,
     };
@@ -394,12 +405,11 @@ impl Server {
     fn handle_hover(&self, id: lsp_server::RequestId, params: HoverParams) -> Response {
         let params = params.text_document_position_params;
         let uri = params.text_document.uri;
-        let document = match self.documents.get(&uri) {
-            Some(document) => document.document.all(),
-            None => {
-                info!("did not find file '{}' in database", &uri);
-                return Response::new_ok(id, Option::<HoverContents>::None);
-            }
+        let document = if let Some(document) = self.documents.get(&uri) {
+            document.document.all()
+        } else {
+            info!("did not find file '{}' in database", &uri);
+            return Response::new_ok(id, Option::<HoverContents>::None);
         };
 
         // We select the node with the shortest range overlapping the range.
@@ -417,7 +427,7 @@ impl Server {
         Response::new_ok(id, result)
     }
 
-    fn handle_completion(&self, id: lsp_server::RequestId, params: CompletionParams) -> Response {
+    fn handle_completion(&self, id: lsp_server::RequestId, params: &CompletionParams) -> Response {
         // Do a simple check whether we are actually completing a link. We only check whether the
         // character before the completion position is a literal `](`.
         let good_position = match self
@@ -427,14 +437,20 @@ impl Server {
             None => false, // Document unknown.
             Some(document) => {
                 let position = &params.text_document_position.position;
-                let character = position.character as usize;
+
+                let character = usize::try_from(position.character)
+                    .expect("could not cast u64 column number to usize");
+
                 character >= 2
                     && document
                         .document
                         .all()
                         .text
                         .lines()
-                        .nth(position.line as usize)
+                        .nth(
+                            usize::try_from(position.line)
+                                .expect("could not cast u64 line number to usize"),
+                        )
                         .unwrap()[character - 2..character]
                         == *"]("
             }
@@ -497,6 +513,7 @@ impl Server {
             })
             .collect();
 
+        #[allow(clippy::single_match_else)]
         let (anchor, anchor_range) = match nodes
             .iter()
             .filter(|node| match &node.data {
@@ -591,7 +608,7 @@ impl Server {
     fn handle_folding_range_request(
         &self,
         id: lsp_server::RequestId,
-        params: FoldingRangeParams,
+        params: &FoldingRangeParams,
     ) -> Response {
         let result: Option<Vec<_>> =
             self.documents
@@ -627,13 +644,12 @@ impl Server {
                                     headings
                                         .iter()
                                         .skip_while(|(_, n)| n.range != node.range)
-                                        .skip(1).skip_while(|(&l, _)| l > *level)
-                                        .next()
-                                        . map(|(_,n)|
+                                        .skip(1).find_map(|(&l, n)| if l <= *level {
                                             // We let the range end before the next section. This
                                             // is safe as we need to have lines preceeding the
                                             // _next_ section.
-                                            n.range.start.line - 1)
+                                            Some(n.range.start.line - 1)
+                                        } else {None})
                             .unwrap_or(
                                 last_node
                                     .expect(
@@ -663,7 +679,7 @@ impl Server {
     fn handle_document_symbol_request(
         &self,
         id: RequestId,
-        params: DocumentSymbolParams,
+        params: &DocumentSymbolParams,
     ) -> Response {
         Response::new_ok(
             id,
@@ -672,11 +688,11 @@ impl Server {
         )
     }
 
-    fn handle_workspace_symbol(&self, id: RequestId, params: WorkspaceSymbolParams) -> Response {
+    fn handle_workspace_symbol(&self, id: RequestId, params: &WorkspaceSymbolParams) -> Response {
         let result: Vec<_> = self
             .documents
             .keys()
-            .map(|uri| match get_symbols(&self.documents, uri) {
+            .flat_map(|uri| match get_symbols(&self.documents, uri) {
                 Some(symbols) => symbols
                     .iter()
                     .filter(|symbol: &&SymbolInformation| symbol.name.contains(&params.query))
@@ -684,20 +700,18 @@ impl Server {
                     .collect::<Vec<_>>(),
                 None => vec![],
             })
-            .flatten()
             .collect();
 
         Response::new_ok(id, result)
     }
 
-    fn handle_rename(&self, id: RequestId, params: RenameParams) -> Response {
-        let source_uri = params.text_document_position.text_document.uri;
-        let document = match self.documents.get(&source_uri) {
-            Some(document) => document.document.all().parsed,
-            None => {
-                info!("did not find file '{}' in database", &source_uri);
-                return Response::new_ok(id, Option::<WorkspaceEdit>::None);
-            }
+    fn handle_rename(&self, id: RequestId, params: &RenameParams) -> Response {
+        let source_uri = params.text_document_position.text_document.uri.clone();
+        let document = if let Some(document) = self.documents.get(&source_uri) {
+            document.document.all().parsed
+        } else {
+            info!("did not find file '{}' in database", &source_uri);
+            return Response::new_ok(id, Option::<WorkspaceEdit>::None);
         };
 
         // We only support renaming headings so select `Heading` node at position.
@@ -766,15 +780,15 @@ impl Server {
                 });
 
         // Compute anchor edits.
-        let new_name = params.new_name;
-        let new_anchor = ast::anchor(&new_name);
+        let new_name = &params.new_name;
+        let new_anchor = ast::anchor(new_name);
 
         let mut edits = HashMap::new();
 
         // Insert edit for the heading text.
         edits.insert(
             source_uri,
-            vec![TextEdit::new(header_text_node.range, new_name)],
+            vec![TextEdit::new(header_text_node.range, new_name.clone())],
         );
 
         for (url, node) in references {
@@ -817,7 +831,7 @@ impl Server {
 
     fn handle_did_close_text_document(
         &mut self,
-        _params: DidCloseTextDocumentParams,
+        _params: &DidCloseTextDocumentParams,
     ) -> Result<()> {
         self.open_document = None;
 
@@ -880,18 +894,18 @@ impl Server {
                     }
 
                     match document.scheme() {
-                        "file" => Some((document, node.range)),
+                        "file" => {
+                            // foo.
+                            self.add_task(Task::LoadFile(Box::new((
+                                document,
+                                (uri.clone(), node.range),
+                            ))))
+                            .ok()
+                        }
                         _ => None,
                     }
                 }
                 _ => None,
-            })
-            .map(|(document, source_range)| {
-                self.add_task(Task::LoadFile(Box::new((
-                    document,
-                    (uri.clone(), source_range),
-                ))))
-                .ok();
             })
             .collect::<Vec<_>>();
 
@@ -911,7 +925,7 @@ impl Server {
         self.add_task(Task::RunLint)
     }
 
-    fn load_file(&mut self, uri: Url, source: (Url, Range)) -> Result<()> {
+    fn load_file(&mut self, uri: Url, source: &(Url, Range)) -> Result<()> {
         let document = match std::fs::read_to_string(uri.to_file_path().unwrap()) {
             Ok(text) => text,
             Err(err) => {
@@ -966,60 +980,62 @@ impl Server {
 }
 
 fn handle_request(req: Request, server: &mut Server) -> Option<Response> {
-    let _req = match request_cast::<request::HoverRequest>(req) {
+    let req = match request_cast::<request::HoverRequest>(req) {
         Ok((id, params)) => {
             return Some(server.handle_hover(id, params));
         }
         Err(req) => req,
     };
-    let _req = match request_cast::<request::Completion>(_req) {
+    let req = match request_cast::<request::Completion>(req) {
         Ok((id, params)) => {
-            return Some(server.handle_completion(id, params));
+            return Some(server.handle_completion(id, &params));
         }
         Err(req) => req,
     };
-    let _req = match request_cast::<request::References>(_req) {
+    let req = match request_cast::<request::References>(req) {
         Ok((id, params)) => {
             return Some(server.handle_references(id, params));
         }
         Err(req) => req,
     };
-    let _req = match request_cast::<request::GotoDefinition>(_req) {
+    let req = match request_cast::<request::GotoDefinition>(req) {
         Ok((id, params)) => {
             return Some(server.handle_gotodefinition(id, params));
         }
         Err(req) => req,
     };
-    let _req = match request_cast::<request::FoldingRangeRequest>(_req) {
+    let req = match request_cast::<request::FoldingRangeRequest>(req) {
         Ok((id, params)) => {
-            return Some(server.handle_folding_range_request(id, params));
+            return Some(server.handle_folding_range_request(id, &params));
         }
         Err(req) => req,
     };
-    let _req = match request_cast::<request::DocumentSymbolRequest>(_req) {
+    let req = match request_cast::<request::DocumentSymbolRequest>(req) {
         Ok((id, params)) => {
-            return Some(server.handle_document_symbol_request(id, params));
+            return Some(server.handle_document_symbol_request(id, &params));
         }
         Err(req) => req,
     };
-    let _req = match request_cast::<request::WorkspaceSymbol>(_req) {
+    let req = match request_cast::<request::WorkspaceSymbol>(req) {
         Ok((id, params)) => {
-            return Some(server.handle_workspace_symbol(id, params));
+            return Some(server.handle_workspace_symbol(id, &params));
         }
         Err(req) => req,
     };
-    let _req = match request_cast::<request::Rename>(_req) {
+    let req = match request_cast::<request::Rename>(req) {
         Ok((id, params)) => {
-            return Some(server.handle_rename(id, params));
+            return Some(server.handle_rename(id, &params));
         }
         Err(req) => req,
     };
-    let _req = match request_cast::<StatusRequest>(_req) {
+    let req = match request_cast::<StatusRequest>(req) {
         Ok((id, _)) => {
             return Some(server.handle_status_request(id));
         }
         Err(req) => req,
     };
+
+    info!("Cannot handle request '{:?}'", req);
 
     None
 }
@@ -1141,16 +1157,16 @@ fn from_reference<'a>(reference: &'a str, from: &Url) -> Option<(Url, Option<&'a
 
     let (reference, anchor) = {
         let split: VecDeque<&str> = reference.rsplitn(2, '#').collect();
-        let (reference, anchor) = match split.len() {
+        let (reference_, anchor) = match split.len() {
             1 => (split[0], None),
             2 => (split[1], Some(split[0])),
             _ => return None,
         };
 
-        if !reference.is_empty() {
-            (reference, anchor)
-        } else {
+        if reference_.is_empty() {
             (from.as_str(), anchor)
+        } else {
+            (reference_, anchor)
         }
     };
 
@@ -1165,6 +1181,12 @@ mod tests {
         super::*,
         crossbeam_channel::RecvError,
         lsp_server::Connection,
+        lsp_types::{
+            ClientCapabilities, CompletionResponse, InitializedParams, PartialResultParams,
+            ReferenceContext, TextDocumentContentChangeEvent, TextDocumentIdentifier,
+            TextDocumentItem, TextDocumentPositionParams, VersionedTextDocumentIdentifier,
+            WorkDoneProgressParams,
+        },
         serde::Deserialize,
         std::{cell::Cell, thread::sleep, time},
         textwrap::dedent,

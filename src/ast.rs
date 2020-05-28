@@ -52,8 +52,7 @@ fn get_linebreaks<P: Into<String>>(input: P) -> Vec<usize> {
         .into()
         .chars()
         .enumerate()
-        .filter(|(_, c)| *c == '\n')
-        .map(|(i, _)| i)
+        .filter_map(|(i, c)| if c == '\n' { Some(i) } else { None })
         .collect()
 }
 
