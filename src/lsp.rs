@@ -391,11 +391,8 @@ impl Server {
         )
     }
 
-    fn handle_hover(
-        &self,
-        id: lsp_server::RequestId,
-        params: TextDocumentPositionParams,
-    ) -> Response {
+    fn handle_hover(&self, id: lsp_server::RequestId, params: HoverParams) -> Response {
+        let params = params.text_document_position_params;
         let uri = params.text_document.uri;
         let document = match self.documents.get(&uri) {
             Some(document) => document.document.all(),
@@ -577,9 +574,10 @@ impl Server {
     fn handle_gotodefinition(
         &self,
         id: lsp_server::RequestId,
-        params: TextDocumentPositionParams,
+        params: GotoDefinitionParams,
     ) -> Response {
-        let result: Option<request::GotoDefinitionResponse> =
+        let params = params.text_document_position_params;
+        let result: Option<GotoDefinitionResponse> =
             get_link_at(&self.documents, &params.text_document.uri, &params.position).and_then(
                 |dest| {
                     get_destination(&self.documents, &params.text_document.uri, dest)
@@ -1399,10 +1397,13 @@ mod tests {
 
         assert_eq!(
             server
-                .send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
-                    TextDocumentIdentifier { uri: uri.clone() },
-                    Position::new(0, 0)
-                ))
+                .send_request::<request::HoverRequest>(HoverParams {
+                    text_document_position_params: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier { uri: uri.clone() },
+                        Position::new(0, 0)
+                    ),
+                    work_done_progress_params: WorkDoneProgressParams::default()
+                })
                 .unwrap(),
             Some(Hover {
                 contents: HoverContents::Array(vec![MarkedString::from_markdown(
@@ -1415,10 +1416,13 @@ mod tests {
 
         assert_eq!(
             server
-                .send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
-                    TextDocumentIdentifier { uri: uri.clone() },
-                    Position::new(0, 2)
-                ))
+                .send_request::<request::HoverRequest>(HoverParams {
+                    text_document_position_params: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier { uri: uri.clone() },
+                        Position::new(0, 2)
+                    ),
+                    work_done_progress_params: WorkDoneProgressParams::default()
+                })
                 .unwrap(),
             Some(Hover {
                 contents: HoverContents::Array(vec![MarkedString::from_markdown(
@@ -1443,10 +1447,13 @@ mod tests {
 
         assert_eq!(
             server
-                .send_request::<request::HoverRequest>(TextDocumentPositionParams::new(
-                    TextDocumentIdentifier { uri },
-                    Position::new(0, 3)
-                ))
+                .send_request::<request::HoverRequest>(HoverParams {
+                    text_document_position_params: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier { uri: uri.clone() },
+                        Position::new(0, 3)
+                    ),
+                    work_done_progress_params: WorkDoneProgressParams::default()
+                })
                 .unwrap(),
             Some(Hover {
                 contents: HoverContents::Array(vec![MarkedString::from_markdown(
@@ -1485,12 +1492,8 @@ mod tests {
                         Position::new(2, 12),
                     ),
                     context: None,
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                    partial_result_params: PartialResultParams {
-                        partial_result_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             Some(CompletionResponse::from(vec![CompletionItem::new_simple(
@@ -1508,12 +1511,8 @@ mod tests {
                         Position::new(2, 2),
                     ),
                     context: None,
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                    partial_result_params: PartialResultParams {
-                        partial_result_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             Some(CompletionResponse::from(vec![])),
@@ -1528,12 +1527,8 @@ mod tests {
                         Position::new(1, 0),
                     ),
                     context: None,
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                    partial_result_params: PartialResultParams {
-                        partial_result_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             Some(CompletionResponse::from(vec![])),
@@ -1577,9 +1572,8 @@ mod tests {
                     context: ReferenceContext {
                         include_declaration: false,
                     },
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             None
@@ -1595,9 +1589,8 @@ mod tests {
                     context: ReferenceContext {
                         include_declaration: true,
                     },
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default()
                 })
                 .unwrap(),
             Some(vec![
@@ -1626,9 +1619,8 @@ mod tests {
                     context: ReferenceContext {
                         include_declaration: false,
                     },
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default()
                 })
                 .unwrap(),
             Some(vec![
@@ -1653,9 +1645,8 @@ mod tests {
                     context: ReferenceContext {
                         include_declaration: true,
                     },
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             Some(vec![
@@ -1684,9 +1675,8 @@ mod tests {
                     context: ReferenceContext {
                         include_declaration: true,
                     },
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             Some(vec![Location::new(
@@ -1729,12 +1719,16 @@ mod tests {
 
         assert_eq!(
             server
-                .send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(file2.clone()),
-                    Position::new(2, 0),
-                ))
+                .send_request::<request::GotoDefinition>(GotoDefinitionParams {
+                    text_document_position_params: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file2.clone()),
+                        Position::new(2, 0),
+                    ),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default()
+                })
                 .unwrap(),
-            Some(request::GotoDefinitionResponse::Scalar(Location::new(
+            Some(GotoDefinitionResponse::Scalar(Location::new(
                 file2.clone(),
                 Range::new(Position::new(1, 0), Position::new(2, 0))
             )))
@@ -1742,12 +1736,16 @@ mod tests {
 
         assert_eq!(
             server
-                .send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(file2.clone()),
-                    Position::new(3, 0),
-                ))
+                .send_request::<request::GotoDefinition>(GotoDefinitionParams {
+                    text_document_position_params: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file2.clone()),
+                        Position::new(3, 0),
+                    ),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
+                })
                 .unwrap(),
-            Some(request::GotoDefinitionResponse::Scalar(Location::new(
+            Some(GotoDefinitionResponse::Scalar(Location::new(
                 file1.clone(),
                 Range::new(Position::new(0, 0), Position::new(0, 0))
             )))
@@ -1755,12 +1753,16 @@ mod tests {
 
         assert_eq!(
             server
-                .send_request::<request::GotoDefinition>(TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(file2),
-                    Position::new(4, 0),
-                ))
+                .send_request::<request::GotoDefinition>(GotoDefinitionParams {
+                    text_document_position_params: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file2),
+                        Position::new(4, 0),
+                    ),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
+                })
                 .unwrap(),
-            Some(request::GotoDefinitionResponse::Scalar(Location::new(
+            Some(GotoDefinitionResponse::Scalar(Location::new(
                 file1,
                 Range::new(Position::new(0, 0), Position::new(0, 5))
             )))
@@ -1801,12 +1803,8 @@ mod tests {
             server
                 .send_request::<request::FoldingRangeRequest>(FoldingRangeParams {
                     text_document: TextDocumentIdentifier::new(uri),
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                    partial_result_params: PartialResultParams {
-                        partial_result_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             Some(vec![
@@ -1851,6 +1849,8 @@ mod tests {
             server
                 .send_request::<request::DocumentSymbolRequest>(DocumentSymbolParams {
                     text_document: TextDocumentIdentifier::new(uri.clone()),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             Some(DocumentSymbolResponse::from(vec![
@@ -1915,12 +1915,8 @@ mod tests {
             server
                 .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
                     query: "".into(),
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                    partial_result_params: PartialResultParams {
-                        partial_result_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap()
                 .map(|symbols| {
@@ -1957,12 +1953,8 @@ mod tests {
             server
                 .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
                     query: "foo".into(),
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                    partial_result_params: PartialResultParams {
-                        partial_result_token: None
-                    },
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
             Some(vec![SymbolInformation {
