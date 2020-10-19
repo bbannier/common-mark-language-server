@@ -142,21 +142,17 @@ impl<'a> ParsedDocument<'a> {
     pub fn at(&self, position: &Position) -> Vec<&Node> {
         let start = match to_offset(position, &self.linebreaks) {
             Some(offset) => offset,
-            _ => return vec![],
+            None => return vec![],
         };
         let end = 1 + match to_offset(&position, &self.linebreaks) {
             Some(offset) => offset,
-            _ => return vec![],
+            None => return vec![],
         };
 
         self.tree
             .query(start..end)
             .map(|e| &e.value)
-            .filter(|n| match n.data {
-                // Drop end tags as they are redudant with start tags.
-                Event::End(_) => false,
-                _ => true,
-            })
+            .filter(|n| !matches!(n.data, Event::End(_)))
             .collect()
     }
 

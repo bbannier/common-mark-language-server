@@ -516,10 +516,7 @@ impl Server {
         #[allow(clippy::single_match_else)]
         let (anchor, anchor_range) = match nodes
             .iter()
-            .filter(|node| match &node.data {
-                m::Event::Start(m::Tag::Link(_, _, _)) => true,
-                _ => false,
-            })
+            .filter(|node| matches!(&node.data, m::Event::Start(m::Tag::Link(_, _, _))))
             .min_by_key(|node| node.offsets.len())
             .map(|node| match &node.data {
                 m::Event::Start(m::Tag::Link(_, dest, _)) => (
@@ -718,22 +715,19 @@ impl Server {
         let nodes = document.at(&params.text_document_position.position);
 
         // Check that we have both a `Heading` and some `Text` at the position.
-        if !(nodes.iter().any(|node| match &node.data {
-            m::Event::Start(m::Tag::Heading(_)) => true,
-            _ => false,
-        }) && nodes.iter().any(|node| match &node.data {
-            m::Event::Text(_) => true,
-            _ => false,
-        })) {
+        if !(nodes
+            .iter()
+            .any(|node| matches!(&node.data, m::Event::Start(m::Tag::Heading(_))))
+            && nodes
+                .iter()
+                .any(|node| matches!(&node.data, m::Event::Text(_))))
+        {
             return Response::new_ok(id, Option::<WorkspaceEdit>::None);
         }
 
         let header_text_node = nodes
             .iter()
-            .find(|node| match &node.data {
-                m::Event::Text(_) => true,
-                _ => false,
-            })
+            .find(|node| matches!(&node.data, m::Event::Text(_)))
             .expect("selection should contain a 'Text' node at this point");
 
         let header_anchor = nodes
