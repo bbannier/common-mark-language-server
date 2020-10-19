@@ -9,9 +9,9 @@ use {
         DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
         DidOpenTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
         FoldingRangeKind, FoldingRangeParams, FoldingRangeProviderCapability, GotoDefinitionParams,
-        GotoDefinitionResponse, Hover, HoverContents, HoverParams, InitializeParams, Location,
-        MarkedString, Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameParams,
-        RenameProviderCapability, ServerCapabilities, SymbolInformation, SymbolKind,
+        GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+        InitializeParams, Location, MarkedString, OneOf, Position, PublishDiagnosticsParams, Range,
+        ReferenceParams, RenameParams, ServerCapabilities, SymbolInformation, SymbolKind,
         TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, WorkspaceEdit,
         WorkspaceSymbolParams,
     },
@@ -248,13 +248,13 @@ fn server_capabilities() -> ServerCapabilities {
             trigger_characters: Some(vec!["](".into()]),
             ..CompletionOptions::default()
         }),
-        hover_provider: Some(true),
-        references_provider: Some(true),
-        definition_provider: Some(true),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
+        references_provider: Some(OneOf::Left(true)),
+        definition_provider: Some(OneOf::Left(true)),
         folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
-        document_symbol_provider: Some(true),
+        document_symbol_provider: Some(OneOf::Left(true)),
         workspace_symbol_provider: Some(true),
-        rename_provider: Some(RenameProviderCapability::Simple(true)),
+        rename_provider: Some(OneOf::Left(true)),
         ..ServerCapabilities::default()
     }
 }
