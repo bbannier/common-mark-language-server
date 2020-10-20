@@ -21,7 +21,9 @@ use {
     std::{
         collections::{HashMap, VecDeque},
         convert::TryFrom,
+        fmt,
         path::Path,
+        sync::Arc,
     },
     url::Url,
 };
@@ -60,17 +62,30 @@ rental! {
 struct Document {
     version: Option<i64>,
     document: rentals::Document,
-    updating: bool,
-    diagnostics: Vec<Diagnostic>,
 }
 
 impl Document {
-    fn add_diagnostic(&mut self, diagnostic: Diagnostic) {
-        if !self.diagnostics.contains(&diagnostic) {
-            self.diagnostics.push(diagnostic);
-        }
+    fn new(document: rentals::Document, version: Option<i64>) -> Self {
+        Document { version, document }
     }
 }
+
+impl fmt::Debug for Document {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Document")
+            .field("version", &self.version)
+            .field("document", &self.document.all().parsed)
+            .finish()
+    }
+}
+
+impl PartialEq for Document {
+    fn eq(&self, other: &Self) -> bool {
+        self.version == other.version && self.document.all().parsed == other.document.all().parsed
+    }
+}
+
+impl Eq for Document {}
 
 #[derive(Debug)]
 enum Task {
@@ -97,7 +112,7 @@ impl Tasks {
     }
 }
 
-type Documents = HashMap<Url, Document>;
+type Documents = HashMap<Url, Arc<Document>>;
 
 fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation>> {
     documents.get(uri).map(|document| {
@@ -166,59 +181,6 @@ fn get_destination(documents: &Documents, source: &Url, dest: &str) -> Option<Lo
     })
 }
 
-fn check_references(documents: &mut Documents) {
-    info!("checking references");
-
-    let diagnostics = documents
-        .iter()
-        .map(|(uri, document)| {
-            let diagnostics = document
-                .document
-                .all()
-                .parsed
-                .nodes()
-                .iter()
-                .filter_map(|node| match &node.data {
-                    m::Event::Start(m::Tag::Link(_, dest, _)) => {
-                        // Ignore non-file links for now.
-                        use std::str::FromStr;
-                        if let Ok(dest) = Url::from_str(dest.as_ref()) {
-                            if dest.scheme() != "file" {
-                                return None;
-                            }
-                        }
-
-                        match get_destination(documents, uri, dest) {
-                            None => Some(Diagnostic::new(
-                                node.range, // source range
-                                Some(DiagnosticSeverity::Error),
-                                None, // code
-                                None, // source
-                                format!("reference '{}' not found", dest),
-                                None, // related info
-                                None, // tag
-                            )),
-                            Some(_) => None,
-                        }
-                    }
-                    _ => None,
-                })
-                .inspect(|_| {
-                    info!("found invalid reference in `{}`", &uri);
-                })
-                .collect::<Vec<_>>();
-
-            (uri.clone(), diagnostics)
-        })
-        .collect::<HashMap<_, _>>();
-
-    for (uri, diagnostics) in diagnostics {
-        if let Some(document) = documents.get_mut(&uri) {
-            document.diagnostics = diagnostics;
-        }
-    }
-}
-
 struct Server {
     connection: Connection,
     tasks: Tasks,
@@ -226,6 +188,8 @@ struct Server {
     root_uri: Url,
     dirty: bool,
     open_document: Option<Url>,
+
+    db: DatabaseStruct,
 }
 
 struct StatusRequest;
@@ -270,6 +234,8 @@ pub fn run_server(connection: Connection) -> Result<()> {
 
     let tasks = Tasks::new();
 
+    let db = DatabaseStruct::default();
+
     let server = Server {
         connection,
         tasks,
@@ -277,6 +243,7 @@ pub fn run_server(connection: Connection) -> Result<()> {
         root_uri,
         dirty: false,
         open_document: None,
+        db,
     };
 
     main_loop(server)
@@ -814,10 +781,6 @@ impl Server {
         let text = params.text_document.text;
         let version = params.text_document.version;
 
-        if let Some(document) = self.documents.get_mut(&uri) {
-            document.updating = true;
-        }
-
         self.open_document = Some(uri.clone());
 
         self.add_task(Task::UpdateDocument(uri, text, Some(version)))
@@ -844,10 +807,6 @@ impl Server {
 
         let version = params.text_document.version;
 
-        if let Some(document) = self.documents.get_mut(&uri) {
-            document.updating = true;
-        }
-
         self.add_task(Task::UpdateDocument(uri, text, version))
     }
 
@@ -863,18 +822,20 @@ impl Server {
                     "not update {} as the new version is identical to the stored one",
                     &uri
                 );
-                document.updating = false;
                 return Ok(());
             }
         }
 
         info!("updating {}", &uri);
 
-        #[allow(clippy::redundant_closure)]
-        let document = rentals::Document::new(text, |text| ast::ParsedDocument::from(text));
+        self.db
+            .set_source_text(uri.clone().into(), version, text.into());
+        let document = self.db.parsed(uri.clone().into(), version);
 
         // Discover other documents we should parse and schedule them for parsing.
         let _dependencies = document
+            .as_ref()
+            .document
             .all()
             .parsed
             .nodes()
@@ -903,15 +864,7 @@ impl Server {
             })
             .collect::<Vec<_>>();
 
-        self.documents.insert(
-            uri,
-            Document {
-                document,
-                version,
-                updating: false,
-                diagnostics: vec![],
-            },
-        );
+        self.documents.insert(uri, document);
 
         self.dirty = true;
 
@@ -922,20 +875,22 @@ impl Server {
     fn load_file(&mut self, uri: Url, source: &(Url, Range)) -> Result<()> {
         let document = match std::fs::read_to_string(uri.to_file_path().unwrap()) {
             Ok(text) => text,
-            Err(err) => {
-                if let Some(document) = self.documents.get_mut(&source.0) {
-                    document.add_diagnostic(Diagnostic::new(
-                        source.1,
-                        Some(DiagnosticSeverity::Error),
-                        None,                                                          // code
-                        None,                                                          // source
-                        format!("could not read file `{}`: {}", uri, err.to_string()), // message
-                        None, // related info
-                        None, // tag
-                    ));
-                }
-
-                return Ok(());
+            Err(_) => {
+                return self.notify::<notification::PublishDiagnostics>(
+                    PublishDiagnosticsParams::new(
+                        source.0.clone(),
+                        vec![Diagnostic::new(
+                            source.1,
+                            Some(DiagnosticSeverity::Error),
+                            None,                                // code
+                            None,                                // source
+                            format!("file '{}' not found", uri), // message
+                            None,                                // related info
+                            None,                                // tag
+                        )],
+                        None, // version
+                    ),
+                );
             }
         };
 
@@ -944,30 +899,12 @@ impl Server {
     }
 
     fn run_lint(&mut self) -> Result<()> {
-        if self.documents.iter().any(|(_, document)| document.updating) {
-            debug!("documents are still updating, defering linting");
-            return self.add_task(Task::RunLint);
-        }
-
         if !self.dirty {
             debug!("skipping redundant linting run");
             return Ok(());
         }
 
-        check_references(&mut self.documents);
-
         self.dirty = false;
-
-        // Publish diagnostics for open document.
-        if let Some(open_document) = &self.open_document {
-            self.documents.get(open_document).map(|document| {
-                self.notify::<notification::PublishDiagnostics>(PublishDiagnosticsParams::new(
-                    open_document.clone(),
-                    document.diagnostics.clone(),
-                    document.version,
-                ))
-            });
-        }
 
         Ok(())
     }
@@ -2185,12 +2122,113 @@ mod tests {
                     Some(DiagnosticSeverity::Error),
                     None,
                     None,
-                    "reference 'bar.md' not found".into(),
+                    "file 'file:///bar.md' not found".into(),
                     None,
                     None,
                 )],
-                Some(1),
+                None,
             )
         );
     }
 }
+
+#[salsa::query_group(SpicyStorage)]
+trait Spicy {
+    #[salsa::input]
+    fn source_text(&self, uri: Arc<Url>, version: Option<i64>) -> Arc<String>;
+
+    fn parsed(&self, uri: Arc<Url>, version: Option<i64>) -> Arc<Document>;
+    fn links(&self, uri: Arc<Url>, version: Option<i64>) -> Arc<Vec<(Location, Url)>>;
+    fn diagnostics(
+        &self,
+        documents: Arc<Vec<(Url, Option<i64>)>>,
+    ) -> Arc<HashMap<Url, Vec<Diagnostic>>>;
+}
+
+fn parsed(db: &dyn Spicy, uri: Arc<Url>, version: Option<i64>) -> Arc<Document> {
+    let text = db.source_text(uri, version);
+
+    #[allow(clippy::redundant_closure)]
+    let document = rentals::Document::new(text.to_string(), |text| ast::ParsedDocument::from(text));
+
+    Arc::new(Document::new(document, version))
+}
+
+fn links(db: &dyn Spicy, uri: Arc<Url>, version: Option<i64>) -> Arc<Vec<(Location, Url)>> {
+    let parsed = db.parsed(uri.clone(), version);
+
+    let document = &parsed.as_ref().document;
+    Arc::new(
+        document
+            .all()
+            .parsed
+            .nodes()
+            .iter()
+            .filter_map(|node: &ast::Node| match &node.data {
+                m::Event::Start(m::Tag::Link(_, dest, _)) => {
+                    let (document, _anchor) = from_reference(dest.as_ref(), &uri)?;
+
+                    let uri = uri.clone();
+
+                    match document.scheme() {
+                        "file" => Some((Location::new((*uri).clone(), node.range), (*uri).clone())),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+fn diagnostics(
+    db: &dyn Spicy,
+    documents: Arc<Vec<(Url, Option<i64>)>>,
+) -> Arc<HashMap<Url, Vec<Diagnostic>>> {
+    let documents: Documents = documents
+        .as_ref()
+        .iter()
+        .map(|(uri, version)| {
+            let document = db.parsed(Arc::new(uri.clone()), *version);
+            (uri.clone(), document)
+        })
+        .collect();
+
+    let mut diagnostics = HashMap::new();
+
+    for (uri, document) in &documents {
+        let links = db.links(Arc::new(uri.clone()), document.version);
+
+        diagnostics.insert(
+            uri.clone(),
+            links
+                .as_ref()
+                .iter()
+                .filter_map(|(source, dest)| {
+                    match get_destination(&documents, uri, dest.as_str()) {
+                        None => Some(Diagnostic::new(
+                            source.range,
+                            Some(DiagnosticSeverity::Error),
+                            None, // code
+                            None, // source
+                            format!("reference '{}' not found", dest),
+                            None, // related info
+                            None, // tag
+                        )),
+                        Some(_) => None,
+                    }
+                })
+                .collect(),
+        );
+    }
+
+    Arc::new(diagnostics)
+}
+
+#[salsa::database(SpicyStorage)]
+#[derive(Default)]
+struct DatabaseStruct {
+    storage: salsa::Storage<Self>,
+}
+
+impl salsa::Database for DatabaseStruct {}

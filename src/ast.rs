@@ -137,6 +137,12 @@ pub struct ParsedDocument<'a> {
     linebreaks: Vec<usize>,
 }
 
+impl<'a> PartialEq for ParsedDocument<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ast == other.ast
+    }
+}
+
 impl<'a> ParsedDocument<'a> {
     /// Get all nodes overlapping `position`.
     pub fn at(&self, position: &Position) -> Vec<&Node> {
