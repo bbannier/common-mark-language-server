@@ -824,9 +824,8 @@ impl Server {
 
         info!("updating {}", &uri);
 
-        self.db
-            .set_source_text(uri.clone().into(), version, text.into());
-        let document = self.db.parsed(uri.clone().into(), version);
+        self.db.set_source_text(uri.clone().into(), text.into());
+        let document = self.db.parsed(uri.clone().into());
 
         // Discover other documents we should parse and schedule them for parsing.
         let _dependencies = document
@@ -2117,27 +2116,24 @@ mod tests {
 #[salsa::query_group(SpicyStorage)]
 trait Spicy {
     #[salsa::input]
-    fn source_text(&self, uri: Arc<Url>, version: Option<i64>) -> Arc<String>;
+    fn source_text(&self, uri: Arc<Url>) -> Arc<String>;
 
-    fn parsed(&self, uri: Arc<Url>, version: Option<i64>) -> Arc<Document>;
-    fn links(&self, uri: Arc<Url>, version: Option<i64>) -> Arc<Vec<(Location, Url)>>;
-    fn diagnostics(
-        &self,
-        documents: Arc<Vec<(Url, Option<i64>)>>,
-    ) -> Arc<HashMap<Url, Vec<Diagnostic>>>;
+    fn parsed(&self, uri: Arc<Url>) -> Arc<Document>;
+    fn links(&self, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>>;
+    fn diagnostics(&self, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec<Diagnostic>>>;
 }
 
-fn parsed(db: &dyn Spicy, uri: Arc<Url>, version: Option<i64>) -> Arc<Document> {
-    let text = db.source_text(uri, version);
+fn parsed(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Document> {
+    let text = db.source_text(uri);
 
     #[allow(clippy::redundant_closure)]
     let document = rentals::Document::new(text.to_string(), |text| ast::ParsedDocument::from(text));
 
-    Arc::new(Document::new(document, version))
+    Arc::new(Document::new(document, None))
 }
 
-fn links(db: &dyn Spicy, uri: Arc<Url>, version: Option<i64>) -> Arc<Vec<(Location, Url)>> {
-    let parsed = db.parsed(uri.clone(), version);
+fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
+    let parsed = db.parsed(uri.clone());
 
     let document = &parsed.as_ref().document;
     Arc::new(
@@ -2163,15 +2159,12 @@ fn links(db: &dyn Spicy, uri: Arc<Url>, version: Option<i64>) -> Arc<Vec<(Locati
     )
 }
 
-fn diagnostics(
-    db: &dyn Spicy,
-    documents: Arc<Vec<(Url, Option<i64>)>>,
-) -> Arc<HashMap<Url, Vec<Diagnostic>>> {
+fn diagnostics(db: &dyn Spicy, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec<Diagnostic>>> {
     let documents: Documents = documents
         .as_ref()
         .iter()
-        .map(|(uri, version)| {
-            let document = db.parsed(Arc::new(uri.clone()), *version);
+        .map(|uri| {
+            let document = db.parsed(Arc::new(uri.clone()));
             (uri.clone(), document)
         })
         .collect();
@@ -2179,7 +2172,7 @@ fn diagnostics(
     let mut diagnostics = HashMap::new();
 
     for (uri, document) in &documents {
-        let links = db.links(Arc::new(uri.clone()), document.version);
+        let links = db.links(Arc::new(uri.clone()));
 
         diagnostics.insert(
             uri.clone(),
