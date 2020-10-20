@@ -63,8 +63,8 @@ struct Document {
     document: rentals::Document,
 }
 
-impl Document {
-    fn new(document: rentals::Document) -> Self {
+impl From<rentals::Document> for Document {
+    fn from(document: rentals::Document) -> Self {
         Document { document }
     }
 }
@@ -2122,7 +2122,7 @@ fn parsed(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Document> {
     #[allow(clippy::redundant_closure)]
     let document = rentals::Document::new(text.to_string(), |text| ast::ParsedDocument::from(text));
 
-    Arc::new(Document::new(document))
+    Arc::new(document.into())
 }
 
 fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
