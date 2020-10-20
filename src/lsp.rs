@@ -60,20 +60,18 @@ rental! {
 }
 
 struct Document {
-    version: Option<i64>,
     document: rentals::Document,
 }
 
 impl Document {
-    fn new(document: rentals::Document, version: Option<i64>) -> Self {
-        Document { version, document }
+    fn new(document: rentals::Document) -> Self {
+        Document { document }
     }
 }
 
 impl fmt::Debug for Document {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Document")
-            .field("version", &self.version)
             .field("document", &self.document.all().parsed)
             .finish()
     }
@@ -81,7 +79,7 @@ impl fmt::Debug for Document {
 
 impl PartialEq for Document {
     fn eq(&self, other: &Self) -> bool {
-        self.version == other.version && self.document.all().parsed == other.document.all().parsed
+        self.document.all().parsed == other.document.all().parsed
     }
 }
 
@@ -808,11 +806,6 @@ impl Server {
 
     fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
         if let Some(document) = self.documents.get_mut(&uri) {
-            if document.version > version {
-                info!("not updating {} as more recent version is known", &uri);
-                return Ok(());
-            }
-
             if document.document.all().text == text {
                 debug!(
                     "not update {} as the new version is identical to the stored one",
@@ -2129,7 +2122,7 @@ fn parsed(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Document> {
     #[allow(clippy::redundant_closure)]
     let document = rentals::Document::new(text.to_string(), |text| ast::ParsedDocument::from(text));
 
-    Arc::new(Document::new(document, None))
+    Arc::new(Document::new(document))
 }
 
 fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
