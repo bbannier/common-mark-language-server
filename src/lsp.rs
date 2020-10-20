@@ -91,7 +91,6 @@ impl Eq for Document {}
 enum Task {
     LoadFile(Box<(Url, (Url, Range))>),
     UpdateDocument(Url, String, Option<i64>),
-    RunLint,
 }
 
 #[derive(Debug)]
@@ -186,7 +185,6 @@ struct Server {
     tasks: Tasks,
     documents: Documents,
     root_uri: Url,
-    dirty: bool,
     open_document: Option<Url>,
 
     db: DatabaseStruct,
@@ -241,7 +239,6 @@ pub fn run_server(connection: Connection) -> Result<()> {
         tasks,
         documents: Documents::new(),
         root_uri,
-        dirty: false,
         open_document: None,
         db,
     };
@@ -287,7 +284,6 @@ fn main_loop(server: Server) -> Result<()> {
                 Task::UpdateDocument(uri, document, version) => {
                     server.update_document(uri, document, version)?
                 }
-                Task::RunLint => server.run_lint()?,
             },
         }
     }
@@ -866,10 +862,7 @@ impl Server {
 
         self.documents.insert(uri, document);
 
-        self.dirty = true;
-
-        // Schedule linter run.
-        self.add_task(Task::RunLint)
+        Ok(())
     }
 
     fn load_file(&mut self, uri: Url, source: &(Url, Range)) -> Result<()> {
@@ -896,17 +889,6 @@ impl Server {
 
         // This document does not exist and cannot be `updating`.
         self.add_task(Task::UpdateDocument(uri, document, None))
-    }
-
-    fn run_lint(&mut self) -> Result<()> {
-        if !self.dirty {
-            debug!("skipping redundant linting run");
-            return Ok(());
-        }
-
-        self.dirty = false;
-
-        Ok(())
     }
 }
 
