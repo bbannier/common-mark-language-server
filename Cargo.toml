@@ -8,10 +8,10 @@ license = "GPL-3.0-or-later"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lsp-server = "0.4"
+lsp-server = "0.5"
 log = "0.4.8"
-lsp-types = "0.82"
-flexi_logger = "0.16"
+lsp-types = "0.88"
+flexi_logger = "0.17"
 serde_json = "1.0.40"
 serde = "1.0.101"
 pulldown-cmark = "0.8"
@@ -27,4 +27,4 @@ anyhow = "1.0.26"
 salsa = "0.16.0"
 
 [dev-dependencies]
-textwrap = "0.12"
+textwrap = "0.13"

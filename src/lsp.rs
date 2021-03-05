@@ -88,7 +88,7 @@ impl Eq for Document {}
 #[derive(Debug)]
 enum Task {
     LoadFile(Box<(Url, (Url, Range))>),
-    UpdateDocument(Url, String, Option<i64>),
+    UpdateDocument(Url, String, Option<i32>),
 }
 
 #[derive(Debug)]
@@ -126,6 +126,7 @@ fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation
                     kind: SymbolKind::String,
                     deprecated: None,
                     container_name: None,
+                    tags: None,
                 }),
                 None => None,
             })
@@ -213,7 +214,7 @@ fn server_capabilities() -> ServerCapabilities {
         definition_provider: Some(OneOf::Left(true)),
         folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
-        workspace_symbol_provider: Some(true),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
         rename_provider: Some(OneOf::Left(true)),
         ..ServerCapabilities::default()
     }
@@ -759,7 +760,7 @@ impl Server {
                 node.range.end.line,
                 node.range.end.character - 1, /* ] */
             );
-            let start = Position::new(end.line, end.character - (header_anchor.len() as u64));
+            let start = Position::new(end.line, end.character - (header_anchor.len() as u32));
 
             edits
                 .get_mut(&url)
@@ -801,10 +802,10 @@ impl Server {
 
         let version = params.text_document.version;
 
-        self.add_task(Task::UpdateDocument(uri, text, version))
+        self.add_task(Task::UpdateDocument(uri, text, Some(version)))
     }
 
-    fn update_document(&mut self, uri: Url, text: String, version: Option<i64>) -> Result<()> {
+    fn update_document(&mut self, uri: Url, text: String, version: Option<i32>) -> Result<()> {
         if let Some(document) = self.documents.get_mut(&uri) {
             if document.document.all().text == text {
                 debug!(
@@ -1100,7 +1101,7 @@ mod tests {
     struct TestServer {
         _thread: jod_thread::JoinHandle<()>,
         client: Connection,
-        req_id: Cell<u64>,
+        req_id: Cell<i32>,
         notifications: (Sender<Notification>, Receiver<Notification>),
     }
 
@@ -1138,6 +1139,7 @@ mod tests {
                     trace: None,
                     workspace_folders: None,
                     client_info: None,
+                    locale: None,
                 })
                 .unwrap();
 
@@ -1790,6 +1792,7 @@ mod tests {
                     kind: SymbolKind::String,
                     deprecated: None,
                     container_name: None,
+                    tags: None,
                 },
                 SymbolInformation {
                     name: "## h2\n".into(),
@@ -1800,6 +1803,7 @@ mod tests {
                     kind: SymbolKind::String,
                     deprecated: None,
                     container_name: None,
+                    tags: None,
                 },
             ])),
         );
@@ -1861,6 +1865,7 @@ mod tests {
                     kind: SymbolKind::String,
                     deprecated: None,
                     container_name: None,
+                    tags: None,
                 },
                 SymbolInformation {
                     name: "# foo\n".into(),
@@ -1871,6 +1876,7 @@ mod tests {
                     kind: SymbolKind::String,
                     deprecated: None,
                     container_name: None,
+                    tags: None,
                 },
             ]),
         );
@@ -1893,6 +1899,7 @@ mod tests {
                 kind: SymbolKind::String,
                 deprecated: None,
                 container_name: None,
+                tags: None,
             },]),
         );
     }

@@ -28,13 +28,13 @@ fn to_offset(position: &Position, linebreaks: &[usize]) -> Option<usize> {
 fn to_position(offset: usize, linebreaks: &[usize]) -> Position {
     let (a, _): (Vec<usize>, _) = linebreaks.iter().partition(|&c| *c < offset);
 
-    let line = a.len() as u64;
+    let line = a.len();
     let character = match a.last() {
         Some(c) => offset - c - 1, // Newline is not visible.
         None => offset,
     } as u64;
 
-    Position::new(line, character)
+    Position::new(line as u32, character as u32)
 }
 
 #[derive(Debug, PartialEq, Clone)]
