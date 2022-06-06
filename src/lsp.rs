@@ -15,6 +15,7 @@ use {
         TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, WorkspaceEdit,
         WorkspaceSymbolParams,
     },
+    ouroboros::self_referencing,
     pulldown_cmark as m,
     serde::{Deserialize, Serialize},
     static_assertions::assert_eq_size,
@@ -48,38 +49,26 @@ where
     not.extract(N::METHOD)
 }
 
-rental! {
-    pub mod rentals {
-    use ast::ParsedDocument;
-        #[rental(covariant)]
-        pub struct Document {
-            text: String,
-            parsed: ParsedDocument<'text>,
-        }
-    }
-}
-
-struct Document {
-    document: rentals::Document,
-}
-
-impl From<rentals::Document> for Document {
-    fn from(document: rentals::Document) -> Self {
-        Document { document }
-    }
+#[self_referencing]
+pub struct Document {
+    text: String,
+    #[borrows(text)]
+    #[covariant]
+    parsed: ast::ParsedDocument<'this>,
 }
 
 impl fmt::Debug for Document {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.borrow_parsed();
         f.debug_struct("Document")
-            .field("document", &self.document.all().parsed)
+            .field("document", &self.borrow_parsed())
             .finish()
     }
 }
 
 impl PartialEq for Document {
     fn eq(&self, other: &Self) -> bool {
-        self.document.all().parsed == other.document.all().parsed
+        self.borrow_parsed() == other.borrow_parsed()
     }
 }
 
@@ -114,14 +103,12 @@ type Documents = HashMap<Url, Arc<Document>>;
 fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation>> {
     documents.get(uri).map(|document| {
         document
-            .document
-            .all()
-            .parsed
+            .borrow_parsed()
             .nodes()
             .iter()
             .filter_map(|node: &ast::Node| match &node.anchor {
                 Some(_) => Some(SymbolInformation {
-                    name: document.document.all().text[node.offsets.clone()].into(),
+                    name: document.borrow_text()[node.offsets.clone()].into(),
                     location: Location::new(uri.clone(), node.range),
                     kind: SymbolKind::String,
                     deprecated: None,
@@ -138,9 +125,7 @@ fn get_link_at<'a>(documents: &'a Documents, uri: &Url, position: &Position) -> 
     documents.get(uri).and_then(|document| {
         // Extract any link at the current position.
         document
-            .document
-            .all()
-            .parsed
+            .borrow_parsed()
             .at(&position)
             .iter()
             .find_map(|node| match &node.data {
@@ -154,27 +139,21 @@ fn get_destination(documents: &Documents, source: &Url, dest: &str) -> Option<Lo
     from_reference(dest, source).and_then(|(uri, anchor)| {
         // Obtain dest node and create result.
         documents.get(&uri).and_then(|document| {
-            document
-                .document
-                .all()
-                .parsed
-                .nodes()
-                .iter()
-                .find_map(|node| {
-                    if let Some(anchor) = &anchor {
-                        if let Some(node_anchor) = &node.anchor {
-                            if node_anchor == anchor {
-                                return Some(Location::new(uri.clone(), node.range));
-                            }
+            document.borrow_parsed().nodes().iter().find_map(|node| {
+                if let Some(anchor) = &anchor {
+                    if let Some(node_anchor) = &node.anchor {
+                        if node_anchor == anchor {
+                            return Some(Location::new(uri.clone(), node.range));
                         }
-                    } else {
-                        return Some(Location::new(
-                            uri.clone(),
-                            Range::new(Position::new(0, 0), Position::new(0, 0)),
-                        ));
                     }
-                    None
-                })
+                } else {
+                    return Some(Location::new(
+                        uri.clone(),
+                        Range::new(Position::new(0, 0), Position::new(0, 0)),
+                    ));
+                }
+                None
+            })
         })
     })
 }
@@ -368,14 +347,14 @@ impl Server {
         let params = params.text_document_position_params;
         let uri = params.text_document.uri;
         let document = if let Some(document) = self.documents.get(&uri) {
-            document.document.all()
+            document
         } else {
             info!("did not find file '{}' in database", &uri);
             return Response::new_ok(id, Option::<HoverContents>::None);
         };
 
         // We select the node with the shortest range overlapping the range.
-        let nodes = document.parsed.at(&params.position);
+        let nodes = document.borrow_parsed().at(&params.position);
         let node = nodes
             .iter()
             .min_by(|x, y| x.offsets.len().cmp(&y.offsets.len()));
@@ -405,9 +384,7 @@ impl Server {
 
                 character >= 2
                     && document
-                        .document
-                        .all()
-                        .text
+                        .borrow_text()
                         .lines()
                         .nth(
                             usize::try_from(position.line)
@@ -426,14 +403,13 @@ impl Server {
             .documents
             .iter()
             .filter_map(|(uri, document)| {
-                let document = document.document.all();
                 let anchors = document
-                    .parsed
+                    .borrow_parsed()
                     .nodes()
                     .iter()
                     .filter_map(|node| match &node.anchor {
                         Some(anchor) => {
-                            let detail = &document.text[node.offsets.clone()];
+                            let detail = &document.borrow_text()[node.offsets.clone()];
                             let reference = full_reference(
                                 (&anchor, uri),
                                 &self.root_uri,
@@ -468,9 +444,7 @@ impl Server {
             .iter()
             .flat_map(|document| {
                 document
-                    .document
-                    .all()
-                    .parsed
+                    .borrow_parsed()
                     .at(&text_document_position.position)
             })
             .collect();
@@ -518,31 +492,33 @@ impl Server {
             vec![]
         };
 
-        let result =
-            self.documents
-                .iter()
-                .flat_map(move |(uri, document)| {
-                    let uri = uri;
-                    let request_uri = text_document_position.text_document.uri.clone();
-                    let anchor = anchor.clone();
-                    document.document.all().parsed.nodes().iter().filter_map(
-                        move |node| match &node.data {
-                            m::Event::Start(m::Tag::Link(_, reference, _))
-                                if reference.as_ref()
-                                    == full_reference(
-                                        (&anchor, uri),
-                                        &self.root_uri,
-                                        &request_uri,
-                                    )? =>
-                            {
-                                Some(Location::new(uri.clone(), node.range))
-                            }
-                            _ => None,
-                        },
-                    )
-                })
-                .chain(declaration.iter().cloned())
-                .collect::<Vec<_>>();
+        let result = self
+            .documents
+            .iter()
+            .flat_map(move |(uri, document)| {
+                let uri = uri;
+                let request_uri = text_document_position.text_document.uri.clone();
+                let anchor = anchor.clone();
+                document
+                    .borrow_parsed()
+                    .nodes()
+                    .iter()
+                    .filter_map(move |node| match &node.data {
+                        m::Event::Start(m::Tag::Link(_, reference, _))
+                            if reference.as_ref()
+                                == full_reference(
+                                    (&anchor, uri),
+                                    &self.root_uri,
+                                    &request_uri,
+                                )? =>
+                        {
+                            Some(Location::new(uri.clone(), node.range))
+                        }
+                        _ => None,
+                    })
+            })
+            .chain(declaration.iter().cloned())
+            .collect::<Vec<_>>();
 
         Response::new_ok(id, result)
     }
@@ -573,7 +549,7 @@ impl Server {
             self.documents
                 .get(&params.text_document.uri)
                 .map(|document| {
-                    let nodes = document.document.all().parsed.nodes();
+                    let nodes = document.borrow_parsed().nodes();
 
                     let last_node = nodes.iter().max_by_key(|node| node.offsets.end);
 
@@ -667,7 +643,7 @@ impl Server {
     fn handle_rename(&self, id: RequestId, params: &RenameParams) -> Response {
         let source_uri = params.text_document_position.text_document.uri.clone();
         let document = if let Some(document) = self.documents.get(&source_uri) {
-            document.document.all().parsed
+            document.borrow_parsed()
         } else {
             info!("did not find file '{}' in database", &source_uri);
             return Response::new_ok(id, Option::<WorkspaceEdit>::None);
@@ -707,33 +683,35 @@ impl Server {
 
         // Find all references to the heading.
         let source_uri_ = source_uri.clone();
-        let references =
-            self.documents
-                .iter()
-                .flat_map(|(referencing_uri, document)| {
-                    let source_uri = source_uri_.clone();
-                    let header_anchor = header_anchor.clone();
+        let references = self
+            .documents
+            .iter()
+            .flat_map(|(referencing_uri, document)| {
+                let source_uri = source_uri_.clone();
+                let header_anchor = header_anchor.clone();
 
-                    document.document.all().parsed.nodes().iter().filter_map(
-                        move |node| match &node.data {
-                            m::Event::Start(m::Tag::Link(_, dest, _)) => {
-                                match from_reference(dest, referencing_uri) {
-                                    Some((target_uri, target_anchor)) => {
-                                        if target_uri == source_uri
-                                            && target_anchor == Some(&header_anchor)
-                                        {
-                                            Some((referencing_uri.clone(), node))
-                                        } else {
-                                            None
-                                        }
+                document
+                    .borrow_parsed()
+                    .nodes()
+                    .iter()
+                    .filter_map(move |node| match &node.data {
+                        m::Event::Start(m::Tag::Link(_, dest, _)) => {
+                            match from_reference(dest, referencing_uri) {
+                                Some((target_uri, target_anchor)) => {
+                                    if target_uri == source_uri
+                                        && target_anchor == Some(&header_anchor)
+                                    {
+                                        Some((referencing_uri.clone(), node))
+                                    } else {
+                                        None
                                     }
-                                    _ => None,
                                 }
+                                _ => None,
                             }
-                            _ => None,
-                        },
-                    )
-                });
+                        }
+                        _ => None,
+                    })
+            });
 
         // Compute anchor edits.
         let new_name = &params.new_name;
@@ -807,7 +785,7 @@ impl Server {
 
     fn update_document(&mut self, uri: Url, text: String, version: Option<i32>) -> Result<()> {
         if let Some(document) = self.documents.get_mut(&uri) {
-            if document.document.all().text == text {
+            if document.borrow_text() == &text {
                 debug!(
                     "not update {} as the new version is identical to the stored one",
                     &uri
@@ -824,9 +802,7 @@ impl Server {
         // Discover other documents we should parse and schedule them for parsing.
         let _dependencies = document
             .as_ref()
-            .document
-            .all()
-            .parsed
+            .borrow_parsed()
             .nodes()
             .iter()
             .filter_map(|node: &ast::Node| match &node.data {
@@ -2126,20 +2102,21 @@ trait Spicy {
 fn parsed(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Document> {
     let text = db.source_text(uri);
 
-    #[allow(clippy::redundant_closure)]
-    let document = rentals::Document::new(text.to_string(), |text| ast::ParsedDocument::from(text));
+    let document = DocumentBuilder {
+        text: text.to_string(),
+        parsed_builder: |text: &String| ast::ParsedDocument::from(text.as_str()),
+    }
+    .build();
 
     Arc::new(document.into())
 }
 
 fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
-    let parsed = db.parsed(uri.clone());
+    let document = db.parsed(uri.clone());
 
-    let document = &parsed.as_ref().document;
     Arc::new(
         document
-            .all()
-            .parsed
+            .borrow_parsed()
             .nodes()
             .iter()
             .filter_map(|node: &ast::Node| match &node.data {
