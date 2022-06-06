@@ -36,7 +36,12 @@ where
     R: request::Request,
     R::Params: serde::de::DeserializeOwned,
 {
-    req.extract(R::METHOD)
+    req.extract(R::METHOD).map_err(|e| match e {
+        lsp_server::ExtractError::MethodMismatch(r) => r,
+        lsp_server::ExtractError::JsonError { method, error } => {
+            panic!("malformed request {}: {}", method, error)
+        }
+    })
 }
 
 fn notification_cast<N>(
@@ -46,7 +51,12 @@ where
     N: notification::Notification,
     N::Params: serde::de::DeserializeOwned,
 {
-    not.extract(N::METHOD)
+    not.extract(N::METHOD).map_err(|e| match e {
+        lsp_server::ExtractError::MethodMismatch(r) => r,
+        lsp_server::ExtractError::JsonError { method, error } => {
+            panic!("malformed notification {}: {}", method, error)
+        }
+    })
 }
 
 #[self_referencing]
@@ -110,7 +120,7 @@ fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation
                 Some(_) => Some(SymbolInformation {
                     name: document.borrow_text()[node.offsets.clone()].into(),
                     location: Location::new(uri.clone(), node.range),
-                    kind: SymbolKind::String,
+                    kind: SymbolKind::STRING,
                     deprecated: None,
                     container_name: None,
                     tags: None,
@@ -183,7 +193,7 @@ impl request::Request for StatusRequest {
 
 fn server_capabilities() -> ServerCapabilities {
     ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::Full)),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec!["](".into()]),
             ..CompletionOptions::default()
@@ -557,7 +567,9 @@ impl Server {
                         let mut xs = nodes
                             .iter()
                             .filter_map(|node| match &node.data {
-                                m::Event::Start(m::Tag::Heading(level)) => Some((level, node)),
+                                m::Event::Start(m::Tag::Heading(level, _, _)) => {
+                                    Some((level, node))
+                                }
                                 _ => None,
                             })
                             .collect::<Vec<_>>();
@@ -571,7 +583,7 @@ impl Server {
                     nodes
                         .iter()
                         .filter_map(|node| match &node.data {
-                            m::Event::Start(m::Tag::Heading(level)) => {
+                            m::Event::Start(m::Tag::Heading(level, _, _)) => {
                                 // Translate headings into sections.
 
                                 // We can reuse a heading's start tag, but need to generate a corresponding end tag.
@@ -655,7 +667,7 @@ impl Server {
         // Check that we have both a `Heading` and some `Text` at the position.
         if !(nodes
             .iter()
-            .any(|node| matches!(&node.data, m::Event::Start(m::Tag::Heading(_))))
+            .any(|node| matches!(&node.data, m::Event::Start(m::Tag::Heading(_, _, _))))
             && nodes
                 .iter()
                 .any(|node| matches!(&node.data, m::Event::Text(_))))
@@ -671,7 +683,7 @@ impl Server {
         let header_anchor = nodes
             .iter()
             .find_map(|node| match &node.data {
-                m::Event::Start(m::Tag::Heading(_)) => Some(
+                m::Event::Start(m::Tag::Heading(_, _, _)) => Some(
                     node.anchor
                         .as_ref()
                         .expect("headings should always contain a generated anchor")
@@ -843,7 +855,7 @@ impl Server {
                         source.0.clone(),
                         vec![Diagnostic::new(
                             source.1,
-                            Some(DiagnosticSeverity::Error),
+                            Some(DiagnosticSeverity::ERROR),
                             None,                                // code
                             None,                                // source
                             format!("file '{}' not found", uri), // message
@@ -953,7 +965,7 @@ fn pretty(node: &ast::Node) -> String {
         m::Event::Code(_) => "Inline code".to_string(),
         m::Event::Start(tag) | m::Event::End(tag) => match tag {
             m::Tag::Paragraph => "Paragraph".to_string(),
-            m::Tag::Heading(level) => format!("Heading (level: {})", level),
+            m::Tag::Heading(level, _, _) => format!("Heading (level: {})", level),
             m::Tag::BlockQuote => "Blockquote".to_string(),
             m::Tag::CodeBlock(_) => "Code block".to_string(),
             m::Tag::Emphasis => "Emphasis".to_string(),
@@ -1084,7 +1096,9 @@ mod tests {
     impl TestServer {
         fn new() -> TestServer {
             // Set up logging. This might fail if another test thread already set up logging.
-            let _ = flexi_logger::Logger::with_env().start();
+            let _ = flexi_logger::Logger::try_with_env()
+                .expect("could not apply logger setting from environment variables")
+                .start();
 
             let (connection, client) = Connection::memory();
             let _thread = jod_thread::Builder::new()
@@ -1312,7 +1326,7 @@ mod tests {
                 .unwrap(),
             Some(Hover {
                 contents: HoverContents::Array(vec![MarkedString::from_markdown(
-                    "Heading (level: 1)\nanchor: heading".to_string()
+                    "Heading (level: h1)\nanchor: heading".to_string()
                 )]),
                 range: Some(Range::new(Position::new(0, 0), Position::new(0, 9))),
             }),
@@ -1765,7 +1779,7 @@ mod tests {
                         uri.clone(),
                         Range::new(Position::new(1, 0), Position::new(2, 0))
                     ),
-                    kind: SymbolKind::String,
+                    kind: SymbolKind::STRING,
                     deprecated: None,
                     container_name: None,
                     tags: None,
@@ -1776,7 +1790,7 @@ mod tests {
                         uri,
                         Range::new(Position::new(2, 0), Position::new(3, 0))
                     ),
-                    kind: SymbolKind::String,
+                    kind: SymbolKind::STRING,
                     deprecated: None,
                     container_name: None,
                     tags: None,
@@ -1838,7 +1852,7 @@ mod tests {
                         file1,
                         Range::new(Position::new(1, 0), Position::new(2, 0))
                     ),
-                    kind: SymbolKind::String,
+                    kind: SymbolKind::STRING,
                     deprecated: None,
                     container_name: None,
                     tags: None,
@@ -1849,7 +1863,7 @@ mod tests {
                         file2.clone(),
                         Range::new(Position::new(1, 0), Position::new(2, 0))
                     ),
-                    kind: SymbolKind::String,
+                    kind: SymbolKind::STRING,
                     deprecated: None,
                     container_name: None,
                     tags: None,
@@ -1872,7 +1886,7 @@ mod tests {
                     file2,
                     Range::new(Position::new(1, 0), Position::new(2, 0))
                 ),
-                kind: SymbolKind::String,
+                kind: SymbolKind::STRING,
                 deprecated: None,
                 container_name: None,
                 tags: None,
@@ -2076,7 +2090,7 @@ mod tests {
                 file2,
                 vec![Diagnostic::new(
                     Range::new(Position::new(1, 0), Position::new(1, 13)),
-                    Some(DiagnosticSeverity::Error),
+                    Some(DiagnosticSeverity::ERROR),
                     None,
                     None,
                     "file 'file:///bar.md' not found".into(),
@@ -2160,7 +2174,7 @@ fn diagnostics(db: &dyn Spicy, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec
                     match get_destination(&documents, uri, dest.as_str()) {
                         None => Some(Diagnostic::new(
                             source.range,
-                            Some(DiagnosticSeverity::Error),
+                            Some(DiagnosticSeverity::ERROR),
                             None, // code
                             None, // source
                             format!("reference '{}' not found", dest),

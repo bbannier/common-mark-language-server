@@ -83,18 +83,20 @@ pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> AstNodes<'a> {
         .iter()
         .enumerate()
         .map(|(i, node)| match &node.data {
-            Event::Start(Tag::Heading(_)) => ast.iter().skip(i).find_map(|node| match &node.data {
-                Event::Text(text) => {
-                    if let Some(count) = repetitions.get_mut(text.as_ref()) {
-                        *count += 1;
-                    } else {
-                        repetitions.insert(text, 0);
-                    }
+            Event::Start(Tag::Heading(_, _, _)) => {
+                ast.iter().skip(i).find_map(|node| match &node.data {
+                    Event::Text(text) => {
+                        if let Some(count) = repetitions.get_mut(text.as_ref()) {
+                            *count += 1;
+                        } else {
+                            repetitions.insert(text, 0);
+                        }
 
-                    Some(anchor(text))
-                }
-                _ => None,
-            }),
+                        Some(anchor(text))
+                    }
+                    _ => None,
+                })
+            }
             _ => None,
         })
         .collect(); // Collect to unborrow `repetitions`.
@@ -207,6 +209,7 @@ pub fn anchor(text: &str) -> String {
 mod tests {
     use {
         super::*,
+        pulldown_cmark::HeadingLevel,
         pulldown_cmark::{CowStr, Tag::*},
         textwrap::dedent,
     };
@@ -278,7 +281,7 @@ mod tests {
             parse,
             vec![
                 Node {
-                    data: Event::Start(Heading(1)),
+                    data: Event::Start(Heading(HeadingLevel::H1, None, Vec::new())),
                     range: Range::new(Position::new(1, 0), Position::new(2, 0)),
                     offsets: 1..6,
                     anchor: Some("h1".to_string()),
@@ -290,7 +293,7 @@ mod tests {
                     anchor: None,
                 },
                 Node {
-                    data: Event::End(Heading(1)),
+                    data: Event::End(Heading(HeadingLevel::H1, None, Vec::new())),
                     range: Range::new(Position::new(1, 0), Position::new(2, 0)),
                     offsets: 1..6,
                     anchor: None,
@@ -334,7 +337,7 @@ mod tests {
             parse,
             vec![
                 Node {
-                    data: Event::Start(Heading(1)),
+                    data: Event::Start(Heading(HeadingLevel::H1, None, Vec::new())),
                     range: Range::new(Position::new(1, 0,), Position::new(2, 0,),),
                     offsets: 1..11,
                     anchor: Some("heading-1".into()),
@@ -346,13 +349,13 @@ mod tests {
                     anchor: None,
                 },
                 Node {
-                    data: Event::End(Heading(1)),
+                    data: Event::End(Heading(HeadingLevel::H1, None, Vec::new())),
                     range: Range::new(Position::new(1, 0,), Position::new(2, 0,),),
                     offsets: 1..11,
                     anchor: None,
                 },
                 Node {
-                    data: Event::Start(Heading(1)),
+                    data: Event::Start(Heading(HeadingLevel::H1, None, Vec::new())),
                     range: Range::new(Position::new(2, 0,), Position::new(3, 0,),),
                     offsets: 11..21,
                     anchor: Some("heading-2".into()),
@@ -364,7 +367,7 @@ mod tests {
                     anchor: None,
                 },
                 Node {
-                    data: Event::End(Heading(1)),
+                    data: Event::End(Heading(HeadingLevel::H1, None, Vec::new())),
                     range: Range::new(Position::new(2, 0,), Position::new(3, 0,),),
                     offsets: 11..21,
                     anchor: None,
