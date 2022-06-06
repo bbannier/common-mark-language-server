@@ -21,7 +21,7 @@ use {
     static_assertions::assert_eq_size,
     std::{
         collections::{HashMap, VecDeque},
-        convert::TryFrom,
+        convert::{TryFrom, TryInto},
         fmt,
         path::Path,
         sync::Arc,
@@ -116,28 +116,29 @@ fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation
             .borrow_parsed()
             .nodes()
             .iter()
-            .filter_map(|node: &ast::Node| match &node.anchor {
-                #[allow(deprecated)]
-                Some(_) => Some(SymbolInformation {
-                    name: document.borrow_text()[node.offsets.clone()].into(),
-                    location: Location::new(uri.clone(), node.range),
-                    kind: SymbolKind::STRING,
-                    deprecated: None,
-                    container_name: None,
-                    tags: None,
-                }),
-                None => None,
+            .filter_map(|node: &ast::Node| {
+                node.anchor.as_ref().map(|_| {
+                    #[allow(deprecated)]
+                    SymbolInformation {
+                        name: document.borrow_text()[node.offsets.clone()].into(),
+                        location: Location::new(uri.clone(), node.range),
+                        kind: SymbolKind::STRING,
+                        deprecated: None,
+                        container_name: None,
+                        tags: None,
+                    }
+                })
             })
             .collect()
     })
 }
 
-fn get_link_at<'a>(documents: &'a Documents, uri: &Url, position: &Position) -> Option<&'a str> {
+fn get_link_at<'a>(documents: &'a Documents, uri: &Url, position: Position) -> Option<&'a str> {
     documents.get(uri).and_then(|document| {
         // Extract any link at the current position.
         document
             .borrow_parsed()
-            .at(&position)
+            .at(position)
             .iter()
             .find_map(|node| match &node.data {
                 m::Event::Start(m::Tag::Link(_, dest, _)) => Some(dest.as_ref()),
@@ -271,7 +272,7 @@ fn main_loop(server: Server) -> Result<()> {
             Event::Task(task) => match task {
                 Task::LoadFile(uri_source) => server.load_file(uri_source.0, &uri_source.1)?,
                 Task::UpdateDocument(uri, document, version) => {
-                    server.update_document(uri, document, version)?
+                    server.update_document(uri, document, version);
                 }
             },
         }
@@ -298,7 +299,8 @@ fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
     };
     let not = match notification_cast::<notification::DidCloseTextDocument>(not) {
         Ok(params) => {
-            return server.handle_did_close_text_document(&params);
+            server.handle_did_close_text_document(&params);
+            return Ok(());
         }
         Err(not) => not,
     };
@@ -319,7 +321,7 @@ impl Server {
         self.connection
             .sender
             .send(Message::Response(response))
-            .map_err(|err| err.into())
+            .map_err(Into::into)
     }
 
     fn notify<N>(&self, params: N::Params) -> Result<()>
@@ -333,7 +335,7 @@ impl Server {
                 N::METHOD.into(),
                 params,
             )))
-            .map_err(|err| err.into())
+            .map_err(Into::into)
     }
 
     fn add_task(&self, task: Task) -> Result<()> {
@@ -365,14 +367,14 @@ impl Server {
         };
 
         // We select the node with the shortest range overlapping the range.
-        let nodes = document.borrow_parsed().at(&params.position);
+        let nodes = document.borrow_parsed().at(params.position);
         let node = nodes
             .iter()
             .min_by(|x, y| x.offsets.len().cmp(&y.offsets.len()));
 
         let result = node.map(|node| Hover {
             // TODO(bbannier): Maybe just introduce a `Into<MarkedString>` for the data.
-            contents: HoverContents::Array(vec![MarkedString::String(pretty(&node))]),
+            contents: HoverContents::Array(vec![MarkedString::String(pretty(node))]),
             range: Some(node.range),
         });
 
@@ -422,7 +424,7 @@ impl Server {
                         Some(anchor) => {
                             let detail = &document.borrow_text()[node.offsets.clone()];
                             let reference = full_reference(
-                                (&anchor, uri),
+                                (anchor, uri),
                                 &self.root_uri,
                                 &params.text_document_position.text_document.uri,
                             )?;
@@ -453,11 +455,7 @@ impl Server {
             .documents
             .get(&text_document_position.text_document.uri)
             .iter()
-            .flat_map(|document| {
-                document
-                    .borrow_parsed()
-                    .at(&text_document_position.position)
-            })
+            .flat_map(|document| document.borrow_parsed().at(text_document_position.position))
             .collect();
 
         #[allow(clippy::single_match_else)]
@@ -541,10 +539,10 @@ impl Server {
     ) -> Response {
         let params = params.text_document_position_params;
         let result: Option<GotoDefinitionResponse> =
-            get_link_at(&self.documents, &params.text_document.uri, &params.position).and_then(
+            get_link_at(&self.documents, &params.text_document.uri, params.position).and_then(
                 |dest| {
                     get_destination(&self.documents, &params.text_document.uri, dest)
-                        .map(|location| location.into())
+                        .map(Into::into)
                 },
             );
 
@@ -663,7 +661,7 @@ impl Server {
         };
 
         // We only support renaming headings so select `Heading` node at position.
-        let nodes = document.at(&params.text_document_position.position);
+        let nodes = document.at(params.text_document_position.position);
 
         // Check that we have both a `Heading` and some `Text` at the position.
         if !(nodes
@@ -751,7 +749,13 @@ impl Server {
                 node.range.end.line,
                 node.range.end.character - 1, /* ] */
             );
-            let start = Position::new(end.line, end.character - (header_anchor.len() as u32));
+
+            let anchor_position: u32 = header_anchor
+                .len()
+                .try_into()
+                .expect("anchor position not representable");
+
+            let start = Position::new(end.line, end.character - anchor_position);
 
             edits
                 .get_mut(&url)
@@ -772,13 +776,8 @@ impl Server {
         self.add_task(Task::UpdateDocument(uri, text, Some(version)))
     }
 
-    fn handle_did_close_text_document(
-        &mut self,
-        _params: &DidCloseTextDocumentParams,
-    ) -> Result<()> {
+    fn handle_did_close_text_document(&mut self, _params: &DidCloseTextDocumentParams) {
         self.open_document = None;
-
-        Ok(())
     }
 
     fn handle_did_change_text_document(
@@ -796,14 +795,14 @@ impl Server {
         self.add_task(Task::UpdateDocument(uri, text, Some(version)))
     }
 
-    fn update_document(&mut self, uri: Url, text: String, _version: Option<i32>) -> Result<()> {
+    fn update_document(&mut self, uri: Url, text: String, _version: Option<i32>) {
         if let Some(document) = self.documents.get_mut(&uri) {
             if document.borrow_text() == &text {
                 debug!(
                     "not update {} as the new version is identical to the stored one",
                     &uri
                 );
-                return Ok(());
+                return;
             }
         }
 
@@ -843,8 +842,6 @@ impl Server {
             .collect::<Vec<_>>();
 
         self.documents.insert(uri, document);
-
-        Ok(())
     }
 
     fn load_file(&mut self, uri: Url, source: &(Url, Range)) -> Result<()> {
@@ -2131,9 +2128,10 @@ fn parsed(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Document> {
     }
     .build();
 
-    Arc::new(document.into())
+    Arc::new(document)
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
     let document = db.parsed(uri.clone());
 
@@ -2159,6 +2157,7 @@ fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
     )
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn diagnostics(db: &dyn Spicy, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec<Diagnostic>>> {
     let documents: Documents = documents
         .as_ref()
@@ -2171,7 +2170,7 @@ fn diagnostics(db: &dyn Spicy, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec
 
     let mut diagnostics = HashMap::new();
 
-    for (uri, _) in &documents {
+    for uri in documents.keys() {
         let links = db.links(Arc::new(uri.clone()));
 
         diagnostics.insert(

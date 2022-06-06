@@ -6,12 +6,11 @@ use {
     std::{
         collections::HashMap,
         convert::{Into, TryInto},
-        iter::FromIterator,
         string::String,
     },
 };
 
-fn to_offset(position: &Position, linebreaks: &[usize]) -> Option<usize> {
+fn to_offset(position: Position, linebreaks: &[usize]) -> Option<usize> {
     let line: usize = position.line.try_into().ok()?;
     let char: usize = position.character.try_into().ok()?;
 
@@ -34,7 +33,12 @@ fn to_position(offset: usize, linebreaks: &[usize]) -> Position {
         None => offset,
     } as u64;
 
-    Position::new(line as u32, character as u32)
+    Position::new(
+        line.try_into().expect("line number not representable"),
+        character
+            .try_into()
+            .expect("column number not representable"),
+    )
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -60,8 +64,8 @@ type AstNodes<'a> = Vec<Node<'a>>;
 
 fn from_offsets(offset: std::ops::Range<usize>, linebreaks: &[usize]) -> Range {
     Range::new(
-        to_position(offset.start, &linebreaks),
-        to_position(offset.end, &linebreaks),
+        to_position(offset.start, linebreaks),
+        to_position(offset.end, linebreaks),
     )
 }
 
@@ -70,7 +74,7 @@ pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> AstNodes<'a> {
         .into_offset_iter()
         .map(|(event, range)| Node {
             data: event,
-            range: from_offsets(range.clone(), &linebreaks),
+            range: from_offsets(range.clone(), linebreaks),
             offsets: range,
             anchor: None,
         })
@@ -147,12 +151,12 @@ impl<'a> PartialEq for ParsedDocument<'a> {
 
 impl<'a> ParsedDocument<'a> {
     /// Get all nodes overlapping `position`.
-    pub fn at(&self, position: &Position) -> Vec<&Node> {
+    pub fn at(&self, position: Position) -> Vec<&Node> {
         let start = match to_offset(position, &self.linebreaks) {
             Some(offset) => offset,
             None => return vec![],
         };
-        let end = 1 + match to_offset(&position, &self.linebreaks) {
+        let end = 1 + match to_offset(position, &self.linebreaks) {
             Some(offset) => offset,
             None => return vec![],
         };
@@ -173,15 +177,18 @@ impl<'a> From<&'a str> for ParsedDocument<'a> {
     fn from(input: &'a str) -> Self {
         let linebreaks = get_linebreaks(input);
 
-        let ast = parse(&input, &linebreaks);
+        let ast = parse(input, &linebreaks);
 
-        let tree: IntervalTree<usize, Node<'a>> = IntervalTree::from_iter(ast.iter().map(|n| {
-            let range = n.offsets.start..n.offsets.end;
-            Element {
-                range,
-                value: (*n).clone(),
-            }
-        }));
+        let tree: IntervalTree<_, _> = ast
+            .iter()
+            .map(|n| {
+                let range = n.offsets.start..n.offsets.end;
+                Element {
+                    range,
+                    value: (*n).clone(),
+                }
+            })
+            .collect();
 
         ParsedDocument {
             ast,
@@ -198,7 +205,7 @@ pub fn anchor(text: &str) -> String {
         .replace_all(text, "-")
         .trim()
         .to_ascii_lowercase()
-        .replace(" ", "-");
+        .replace(' ', "-");
 
     anchor.retain(|c| c.is_alphanumeric() || c == '-');
 
@@ -216,10 +223,10 @@ mod tests {
 
     #[test]
     fn test_to_offset() {
-        assert_eq!(to_offset(&Position::new(0, 5), &[]), Some(5));
-        assert_eq!(to_offset(&Position::new(0, 0), &[1]), Some(0));
-        assert_eq!(to_offset(&Position::new(1, 0), &[2]), Some(3));
-        assert_eq!(to_offset(&Position::new(2, 0), &[2, 4]), Some(5));
+        assert_eq!(to_offset(Position::new(0, 5), &[]), Some(5));
+        assert_eq!(to_offset(Position::new(0, 0), &[1]), Some(0));
+        assert_eq!(to_offset(Position::new(1, 0), &[2]), Some(3));
+        assert_eq!(to_offset(Position::new(2, 0), &[2, 4]), Some(5));
     }
 
     #[test]
@@ -382,7 +389,7 @@ mod tests {
         let ast = ParsedDocument::from(s);
 
         assert_eq!(
-            ast.at(&Position::new(0, 0)),
+            ast.at(Position::new(0, 0)),
             vec![
                 &Node {
                     data: Event::Text(CowStr::Borrowed("asdasad sdaasa aasd asdasdasdada")),
