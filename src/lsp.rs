@@ -117,6 +117,7 @@ fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation
             .nodes()
             .iter()
             .filter_map(|node: &ast::Node| match &node.anchor {
+                #[allow(deprecated)]
                 Some(_) => Some(SymbolInformation {
                     name: document.borrow_text()[node.offsets.clone()].into(),
                     location: Location::new(uri.clone(), node.range),
@@ -795,7 +796,7 @@ impl Server {
         self.add_task(Task::UpdateDocument(uri, text, Some(version)))
     }
 
-    fn update_document(&mut self, uri: Url, text: String, version: Option<i32>) -> Result<()> {
+    fn update_document(&mut self, uri: Url, text: String, _version: Option<i32>) -> Result<()> {
         if let Some(document) = self.documents.get_mut(&uri) {
             if document.borrow_text() == &text {
                 debug!(
@@ -1119,6 +1120,7 @@ mod tests {
                 notifications,
             };
 
+            #[allow(deprecated)]
             server
                 .send_request::<request::Initialize>(InitializeParams {
                     capabilities: ClientCapabilities::default(),
@@ -1773,6 +1775,7 @@ mod tests {
                 })
                 .unwrap(),
             Some(DocumentSymbolResponse::from(vec![
+                #[allow(deprecated)]
                 SymbolInformation {
                     name: "# h1\n".into(),
                     location: Location::new(
@@ -1784,6 +1787,7 @@ mod tests {
                     container_name: None,
                     tags: None,
                 },
+                #[allow(deprecated)]
                 SymbolInformation {
                     name: "## h2\n".into(),
                     location: Location::new(
@@ -1846,6 +1850,7 @@ mod tests {
                     symbols
                 }),
             Some(vec![
+                #[allow(deprecated)]
                 SymbolInformation {
                     name: "# bar\n".into(),
                     location: Location::new(
@@ -1857,6 +1862,7 @@ mod tests {
                     container_name: None,
                     tags: None,
                 },
+                #[allow(deprecated)]
                 SymbolInformation {
                     name: "# foo\n".into(),
                     location: Location::new(
@@ -1880,17 +1886,20 @@ mod tests {
                     partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
-            Some(vec![SymbolInformation {
-                name: "# foo\n".into(),
-                location: Location::new(
-                    file2,
-                    Range::new(Position::new(1, 0), Position::new(2, 0))
-                ),
-                kind: SymbolKind::STRING,
-                deprecated: None,
-                container_name: None,
-                tags: None,
-            },]),
+            Some(vec![
+                #[allow(deprecated)]
+                SymbolInformation {
+                    name: "# foo\n".into(),
+                    location: Location::new(
+                        file2,
+                        Range::new(Position::new(1, 0), Position::new(2, 0))
+                    ),
+                    kind: SymbolKind::STRING,
+                    deprecated: None,
+                    container_name: None,
+                    tags: None,
+                },
+            ]),
         );
     }
 
@@ -2162,7 +2171,7 @@ fn diagnostics(db: &dyn Spicy, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec
 
     let mut diagnostics = HashMap::new();
 
-    for (uri, document) in &documents {
+    for (uri, _) in &documents {
         let links = db.links(Arc::new(uri.clone()));
 
         diagnostics.insert(
