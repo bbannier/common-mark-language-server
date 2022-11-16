@@ -117,7 +117,7 @@ pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> AstNodes<'a> {
             let anchor: &str = anchor;
             if let Some(count) = repetitions.get_mut(anchor) {
                 *count += 1;
-                Some(format!("{}-{}", anchor, count))
+                Some(format!("{anchor}-{count}"))
             } else {
                 Some(String::from(anchor))
             }
@@ -217,7 +217,10 @@ mod tests {
     use {
         super::*,
         pulldown_cmark::HeadingLevel,
-        pulldown_cmark::{CowStr, Tag::*},
+        pulldown_cmark::{
+            CowStr,
+            Tag::{Heading, Paragraph},
+        },
         textwrap::dedent,
     };
 

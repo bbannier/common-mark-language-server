@@ -854,11 +854,11 @@ impl Server {
                         vec![Diagnostic::new(
                             source.1,
                             Some(DiagnosticSeverity::ERROR),
-                            None,                                // code
-                            None,                                // source
-                            format!("file '{}' not found", uri), // message
-                            None,                                // related info
-                            None,                                // tag
+                            None,                              // code
+                            None,                              // source
+                            format!("file '{uri}' not found"), // message
+                            None,                              // related info
+                            None,                              // tag
                         )],
                         None, // version
                     ),
@@ -948,10 +948,10 @@ fn pretty_link(link_type: m::LinkType, dest: &m::CowStr, title: &m::CowStr) -> S
 
     let mut result = vec![link_type];
     if !dest.is_empty() {
-        result.push(format!("destination: {}", dest));
+        result.push(format!("destination: {dest}"));
     }
     if !title.is_empty() {
-        result.push(format!("title: {}", title));
+        result.push(format!("title: {title}"));
     }
 
     result.join(", ")
@@ -963,7 +963,7 @@ fn pretty(node: &ast::Node) -> String {
         m::Event::Code(_) => "Inline code".to_string(),
         m::Event::Start(tag) | m::Event::End(tag) => match tag {
             m::Tag::Paragraph => "Paragraph".to_string(),
-            m::Tag::Heading(level, _, _) => format!("Heading (level: {})", level),
+            m::Tag::Heading(level, _, _) => format!("Heading (level: {level})"),
             m::Tag::BlockQuote => "Blockquote".to_string(),
             m::Tag::CodeBlock(_) => "Code block".to_string(),
             m::Tag::Emphasis => "Emphasis".to_string(),
@@ -976,7 +976,7 @@ fn pretty(node: &ast::Node) -> String {
             }
             m::Tag::Item => "Item".to_string(),
             m::Tag::List(option) => match option {
-                Some(option) => format!("List (first item: {})", option),
+                Some(option) => format!("List (first item: {option})"),
                 None => "List".to_string(),
             },
             m::Tag::Strikethrough => "Strikethrough".to_string(),
@@ -1010,7 +1010,7 @@ fn pretty(node: &ast::Node) -> String {
 
     match &node.anchor {
         None => event,
-        Some(anchor) => format!("{}\nanchor: {}", event, anchor),
+        Some(anchor) => format!("{event}\nanchor: {anchor}"),
     }
 }
 
@@ -1222,8 +1222,8 @@ mod tests {
             N: notification::Notification,
             N::Params: serde::de::DeserializeOwned,
         {
-            let not: Notification = self.notifications.1.recv().map_err(|err| err)?;
-            serde_json::from_value(not.params).map_err(|err| err.into())
+            let not: Notification = self.notifications.1.recv()?;
+            serde_json::from_value(not.params).map_err(std::convert::Into::into)
         }
     }
 
@@ -1367,7 +1367,7 @@ mod tests {
             server
                 .send_request::<request::HoverRequest>(HoverParams {
                     text_document_position_params: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier { uri: uri.clone() },
+                        TextDocumentIdentifier { uri },
                         Position::new(0, 3)
                     ),
                     work_done_progress_params: WorkDoneProgressParams::default()
@@ -1836,7 +1836,7 @@ mod tests {
         assert_eq!(
             server
                 .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
-                    query: "".into(),
+                    query: String::new(),
                     work_done_progress_params: WorkDoneProgressParams::default(),
                     partial_result_params: PartialResultParams::default(),
                 })
@@ -2185,7 +2185,7 @@ fn diagnostics(db: &dyn Spicy, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec
                             Some(DiagnosticSeverity::ERROR),
                             None, // code
                             None, // source
-                            format!("reference '{}' not found", dest),
+                            format!("reference '{dest}' not found"),
                             None, // related info
                             None, // tag
                         )),
