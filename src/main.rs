@@ -1,18 +1,23 @@
 use common_mark_language_server::lsp;
 
-use {anyhow::Result, log::info, lsp_server::Connection, structopt::StructOpt};
+use {anyhow::Result, clap::Parser, log::info, lsp_server::Connection};
 
-#[derive(StructOpt)]
-struct Opt {
-    #[structopt(long="verbosity", possible_values=&["error", "warn", "info", "debug"], default_value="info")]
+#[derive(Parser, Debug)]
+#[clap(about, version)]
+struct Args {
+    #[clap(
+        long = "verbosity",
+        default_value = "info",
+        help = "one of error, warn, info, debug"
+    )]
     verbosity: String,
 
-    #[structopt(long = "log-directory", default_value = "/tmp")]
+    #[clap(long = "log-directory", default_value = "/tmp")]
     log_directory: String,
 }
 
 fn main() -> Result<()> {
-    let opt = Opt::from_args();
+    let opt = Args::parse();
 
     // Set up logging. Because `stdio_transport` gets a lock on stdout and stdin, we must have
     // our logging only write out to stderr.
