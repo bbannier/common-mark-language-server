@@ -39,7 +39,7 @@ where
     req.extract(R::METHOD).map_err(|e| match e {
         lsp_server::ExtractError::MethodMismatch(r) => r,
         lsp_server::ExtractError::JsonError { method, error } => {
-            panic!("malformed request {}: {}", method, error)
+            panic!("malformed request {method}: {error}")
         }
     })
 }
@@ -54,7 +54,7 @@ where
     not.extract(N::METHOD).map_err(|e| match e {
         lsp_server::ExtractError::MethodMismatch(r) => r,
         lsp_server::ExtractError::JsonError { method, error } => {
-            panic!("malformed notification {}: {}", method, error)
+            panic!("malformed notification {method}: {error}")
         }
     })
 }
@@ -359,9 +359,7 @@ impl Server {
     fn handle_hover(&self, id: lsp_server::RequestId, params: HoverParams) -> Response {
         let params = params.text_document_position_params;
         let uri = params.text_document.uri;
-        let document = if let Some(document) = self.documents.get(&uri) {
-            document
-        } else {
+        let Some(document) = self.documents.get(&uri) else {
             info!("did not find file '{}' in database", &uri);
             return Response::new_ok(id, Option::<HoverContents>::None);
         };
@@ -458,8 +456,7 @@ impl Server {
             .flat_map(|document| document.borrow_parsed().at(text_document_position.position))
             .collect();
 
-        #[allow(clippy::single_match_else)]
-        let (anchor, anchor_range) = match nodes
+        let Some((anchor, anchor_range)) = nodes
             .iter()
             .filter(|node| matches!(&node.data, m::Event::Start(m::Tag::Link(_, _, _))))
             .min_by_key(|node| node.offsets.len())
@@ -484,12 +481,10 @@ impl Server {
                             node.range,
                         )
                     })
-            }) {
-            Some((anchor, range)) => (anchor, range),
-            _ => {
-                // No anchor found at position, return empty result.
-                return Response::new_ok(id, Option::<Vec<Location>>::None);
-            }
+            })
+        else {
+            // No anchor found at position, return empty result.
+            return Response::new_ok(id, Option::<Vec<Location>>::None);
         };
 
         let declaration = if params.context.include_declaration {
@@ -505,7 +500,6 @@ impl Server {
             .documents
             .iter()
             .flat_map(move |(uri, document)| {
-                let uri = uri;
                 let request_uri = text_document_position.text_document.uri.clone();
                 let anchor = anchor.clone();
                 document
@@ -846,25 +840,20 @@ impl Server {
     }
 
     fn load_file(&mut self, uri: Url, source: &(Url, Range)) -> Result<()> {
-        let document = match std::fs::read_to_string(uri.to_file_path().unwrap()) {
-            Ok(text) => text,
-            Err(_) => {
-                return self.notify::<notification::PublishDiagnostics>(
-                    PublishDiagnosticsParams::new(
-                        source.0.clone(),
-                        vec![Diagnostic::new(
-                            source.1,
-                            Some(DiagnosticSeverity::ERROR),
-                            None,                              // code
-                            None,                              // source
-                            format!("file '{uri}' not found"), // message
-                            None,                              // related info
-                            None,                              // tag
-                        )],
-                        None, // version
-                    ),
-                );
-            }
+        let Ok(document) = std::fs::read_to_string(uri.to_file_path().unwrap()) else {
+            return self.notify::<notification::PublishDiagnostics>(PublishDiagnosticsParams::new(
+                source.0.clone(),
+                vec![Diagnostic::new(
+                    source.1,
+                    Some(DiagnosticSeverity::ERROR),
+                    None,                              // code
+                    None,                              // source
+                    format!("file '{uri}' not found"), // message
+                    None,                              // related info
+                    None,                              // tag
+                )],
+                None, // version
+            ));
         };
 
         // This document does not exist and cannot be `updating`.
@@ -922,7 +911,7 @@ fn handle_request(req: Request, server: &mut Server) -> Option<Response> {
         Err(req) => req,
     };
     let req = match request_cast::<StatusRequest>(req) {
-        Ok((id, _)) => {
+        Ok((id, ())) => {
             return Some(server.handle_status_request(id));
         }
         Err(req) => req,
