@@ -612,6 +612,7 @@ impl Server {
                                     end_line: end,
                                     end_character: None,
                                     kind: Some(FoldingRangeKind::Region),
+                                    ..FoldingRange::default()
                                 })
                             }
                             _ => None,
@@ -908,7 +909,7 @@ fn handle_request(req: Request, server: &mut Server) -> Option<Response> {
         }
         Err(req) => req,
     };
-    let req = match request_cast::<request::WorkspaceSymbol>(req) {
+    let req = match request_cast::<request::WorkspaceSymbolRequest>(req) {
         Ok((id, params)) => {
             return Some(server.handle_workspace_symbol(id, &params));
         }
@@ -1069,15 +1070,16 @@ fn from_reference<'a>(reference: &'a str, from: &Url) -> Option<(Url, Option<&'a
 
 #[cfg(test)]
 mod tests {
+    use lsp_types::WorkspaceSymbolResponse;
+
     use {
         super::*,
         crossbeam_channel::RecvError,
         lsp_server::Connection,
         lsp_types::{
-            ClientCapabilities, CompletionResponse, InitializedParams, PartialResultParams,
-            ReferenceContext, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-            TextDocumentItem, TextDocumentPositionParams, VersionedTextDocumentIdentifier,
-            WorkDoneProgressParams,
+            CompletionResponse, InitializedParams, PartialResultParams, ReferenceContext,
+            TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
+            TextDocumentPositionParams, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
         },
         serde::Deserialize,
         std::{cell::Cell, thread::sleep, time},
@@ -1117,19 +1119,8 @@ mod tests {
                 notifications,
             };
 
-            #[allow(deprecated)]
             server
-                .send_request::<request::Initialize>(InitializeParams {
-                    capabilities: ClientCapabilities::default(),
-                    initialization_options: None,
-                    process_id: None,
-                    root_uri: None,
-                    root_path: None,
-                    trace: None,
-                    workspace_folders: None,
-                    client_info: None,
-                    locale: None,
-                })
+                .send_request::<request::Initialize>(InitializeParams::default())
                 .unwrap();
 
             server.send_notification::<notification::Initialized>(InitializedParams {});
@@ -1731,14 +1722,16 @@ mod tests {
                     start_character: None,
                     end_line: 13,
                     end_character: None,
-                    kind: Some(FoldingRangeKind::Region)
+                    kind: Some(FoldingRangeKind::Region),
+                    ..FoldingRange::default()
                 },
                 FoldingRange {
                     start_line: 6,
                     start_character: None,
                     end_line: 13,
                     end_character: None,
-                    kind: Some(FoldingRangeKind::Region)
+                    kind: Some(FoldingRangeKind::Region),
+                    ..FoldingRange::default()
                 }
             ]),
         );
@@ -1835,14 +1828,17 @@ mod tests {
         // An empty query returns all symbols.
         assert_eq!(
             server
-                .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
+                .send_request::<request::WorkspaceSymbolRequest>(WorkspaceSymbolParams {
                     query: String::new(),
                     work_done_progress_params: WorkDoneProgressParams::default(),
                     partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap()
                 .map(|symbols| {
-                    let mut symbols = symbols;
+                    let mut symbols = match symbols {
+                        WorkspaceSymbolResponse::Flat(xs) => xs,
+                        _ => unreachable!(),
+                    };
                     symbols.sort_unstable_by(|left, right| left.name.cmp(&right.name));
                     symbols
                 }),
@@ -1877,13 +1873,13 @@ mod tests {
         // With query matching symbols are returned.
         assert_eq!(
             server
-                .send_request::<request::WorkspaceSymbol>(WorkspaceSymbolParams {
+                .send_request::<request::WorkspaceSymbolRequest>(WorkspaceSymbolParams {
                     query: "foo".into(),
                     work_done_progress_params: WorkDoneProgressParams::default(),
                     partial_result_params: PartialResultParams::default(),
                 })
                 .unwrap(),
-            Some(vec![
+            Some(WorkspaceSymbolResponse::Flat(vec![
                 #[allow(deprecated)]
                 SymbolInformation {
                     name: "# foo\n".into(),
@@ -1896,7 +1892,7 @@ mod tests {
                     container_name: None,
                     tags: None,
                 },
-            ]),
+            ])),
         );
     }
 
