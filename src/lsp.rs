@@ -21,7 +21,6 @@ use {
     static_assertions::assert_eq_size,
     std::{
         collections::{HashMap, VecDeque},
-        convert::{TryFrom, TryInto},
         fmt,
         path::Path,
         sync::Arc,

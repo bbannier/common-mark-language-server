@@ -3,11 +3,7 @@ use {
     lsp_types::{Position, Range},
     pulldown_cmark::{Event, Parser, Tag},
     regex::Regex,
-    std::{
-        collections::HashMap,
-        convert::{Into, TryInto},
-        string::String,
-    },
+    std::collections::HashMap,
 };
 
 fn to_offset(position: Position, linebreaks: &[usize]) -> Option<usize> {
