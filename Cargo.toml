@@ -24,7 +24,7 @@ regex = "1.10.3"
 anyhow = "1.0.80"
 salsa = "0.16.1"
 ouroboros = "0.18.3"
-clap = { version = "4.5.0", features = ["derive"] }
+clap = { version = "4.5.1", features = ["derive"] }
 
 [dev-dependencies]
 textwrap = "0.16.0"
