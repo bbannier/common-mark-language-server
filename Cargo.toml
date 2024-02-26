@@ -12,7 +12,7 @@ lsp-server = "0.7.6"
 log = "0.4.20"
 lsp-types = "0.95.0"
 flexi_logger = { version = "0.27.4", default-features = false }
-serde_json = "1.0.113"
+serde_json = "1.0.114"
 serde = "1.0.197"
 pulldown-cmark = "0.9.6"
 intervaltree = "0.2.7"
