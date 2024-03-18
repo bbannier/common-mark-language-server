@@ -216,7 +216,8 @@ pub fn run_server(connection: Connection) -> Result<()> {
 
     let cwd = Url::from_file_path(std::env::current_dir()?).ok();
     let root_uri = initialize_params
-        .root_uri
+        .workspace_folders
+        .and_then(|folders| folders.first().map(|f| f.uri.clone()))
         .unwrap_or_else(|| cwd.expect("could not determine root_uri"));
 
     let tasks = Tasks::new();
@@ -1062,14 +1063,11 @@ mod tests {
 
     use {
         super::*,
-        crossbeam_channel::RecvError,
-        lsp_server::Connection,
         lsp_types::{
             CompletionResponse, InitializedParams, PartialResultParams, ReferenceContext,
             TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
             TextDocumentPositionParams, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
         },
-        serde::Deserialize,
         std::{cell::Cell, thread::sleep, time},
         textwrap::dedent,
     };
