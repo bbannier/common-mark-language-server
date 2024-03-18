@@ -1063,14 +1063,11 @@ mod tests {
 
     use {
         super::*,
-        crossbeam_channel::RecvError,
-        lsp_server::Connection,
         lsp_types::{
             CompletionResponse, InitializedParams, PartialResultParams, ReferenceContext,
             TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
             TextDocumentPositionParams, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
         },
-        serde::Deserialize,
         std::{cell::Cell, thread::sleep, time},
         textwrap::dedent,
     };
