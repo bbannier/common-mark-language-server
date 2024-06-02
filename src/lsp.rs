@@ -16,7 +16,7 @@ use {
         WorkspaceSymbolParams,
     },
     ouroboros::self_referencing,
-    pulldown_cmark as m,
+    pulldown_cmark::{self as m},
     serde::{Deserialize, Serialize},
     static_assertions::assert_eq_size,
     std::{
@@ -140,7 +140,7 @@ fn get_link_at<'a>(documents: &'a Documents, uri: &Url, position: Position) -> O
             .at(position)
             .iter()
             .find_map(|node| match &node.data {
-                m::Event::Start(m::Tag::Link(_, dest, _)) => Some(dest.as_ref()),
+                m::Event::Start(m::Tag::Link { dest_url, .. }) => Some(dest_url.as_ref()),
                 _ => None,
             })
     })
@@ -458,11 +458,13 @@ impl Server {
 
         let Some((anchor, anchor_range)) = nodes
             .iter()
-            .filter(|node| matches!(&node.data, m::Event::Start(m::Tag::Link(_, _, _))))
+            .filter(|node| matches!(&node.data, m::Event::Start(m::Tag::Link { .. })))
             .min_by_key(|node| node.offsets.len())
             .map(|node| match &node.data {
-                m::Event::Start(m::Tag::Link(_, dest, _)) => (
-                    String::from(dest.as_ref()).trim_start_matches('#').into(),
+                m::Event::Start(m::Tag::Link { dest_url, .. }) => (
+                    String::from(dest_url.as_ref())
+                        .trim_start_matches('#')
+                        .into(),
                     node.range,
                 ),
                 _ => unreachable!(),
@@ -507,8 +509,8 @@ impl Server {
                     .nodes()
                     .iter()
                     .filter_map(move |node| match &node.data {
-                        m::Event::Start(m::Tag::Link(_, reference, _))
-                            if reference.as_ref()
+                        m::Event::Start(m::Tag::Link { dest_url, .. })
+                            if dest_url.as_ref()
                                 == full_reference(
                                     (&anchor, uri),
                                     &self.root_uri,
@@ -560,7 +562,7 @@ impl Server {
                         let mut xs = nodes
                             .iter()
                             .filter_map(|node| match &node.data {
-                                m::Event::Start(m::Tag::Heading(level, _, _)) => {
+                                m::Event::Start(m::Tag::Heading { level, .. }) => {
                                     Some((level, node))
                                 }
                                 _ => None,
@@ -576,7 +578,7 @@ impl Server {
                     nodes
                         .iter()
                         .filter_map(|node| match &node.data {
-                            m::Event::Start(m::Tag::Heading(level, _, _)) => {
+                            m::Event::Start(m::Tag::Heading { level, .. }) => {
                                 // Translate headings into sections.
 
                                 // We can reuse a heading's start tag, but need to generate a corresponding end tag.
@@ -661,7 +663,7 @@ impl Server {
         // Check that we have both a `Heading` and some `Text` at the position.
         if !(nodes
             .iter()
-            .any(|node| matches!(&node.data, m::Event::Start(m::Tag::Heading(_, _, _))))
+            .any(|node| matches!(&node.data, m::Event::Start(m::Tag::Heading { .. })))
             && nodes
                 .iter()
                 .any(|node| matches!(&node.data, m::Event::Text(_))))
@@ -677,7 +679,7 @@ impl Server {
         let header_anchor = nodes
             .iter()
             .find_map(|node| match &node.data {
-                m::Event::Start(m::Tag::Heading(_, _, _)) => Some(
+                m::Event::Start(m::Tag::Heading { .. }) => Some(
                     node.anchor
                         .as_ref()
                         .expect("headings should always contain a generated anchor")
@@ -701,8 +703,8 @@ impl Server {
                     .nodes()
                     .iter()
                     .filter_map(move |node| match &node.data {
-                        m::Event::Start(m::Tag::Link(_, dest, _)) => {
-                            match from_reference(dest, referencing_uri) {
+                        m::Event::Start(m::Tag::Link { dest_url, .. }) => {
+                            match from_reference(dest_url, referencing_uri) {
                                 Some((target_uri, target_anchor)) => {
                                     if target_uri == source_uri
                                         && target_anchor == Some(&header_anchor)
@@ -813,8 +815,8 @@ impl Server {
             .nodes()
             .iter()
             .filter_map(|node: &ast::Node| match &node.data {
-                m::Event::Start(m::Tag::Link(_, dest, _)) => {
-                    let (document, _anchor) = from_reference(dest.as_ref(), &uri)?;
+                m::Event::Start(m::Tag::Link { dest_url, .. }) => {
+                    let (document, _anchor) = from_reference(dest_url.as_ref(), &uri)?;
 
                     if document == uri {
                         return None;
@@ -950,19 +952,34 @@ fn pretty_link(link_type: m::LinkType, dest: &m::CowStr, title: &m::CowStr) -> S
 fn pretty(node: &ast::Node) -> String {
     let event = &node.data;
     let event = match event {
+        m::Event::InlineHtml(_) => "Inline HTML".to_string(),
+        m::Event::InlineMath(_) => "Inline math".to_string(),
+        m::Event::DisplayMath(_) => "Display math".to_string(),
         m::Event::Code(_) => "Inline code".to_string(),
-        m::Event::Start(tag) | m::Event::End(tag) => match tag {
+        m::Event::Start(tag) => match tag {
+            m::Tag::MetadataBlock(..) => "Metadata block".to_string(),
+            m::Tag::HtmlBlock { .. } => "HTML block".to_string(),
             m::Tag::Paragraph => "Paragraph".to_string(),
-            m::Tag::Heading(level, _, _) => format!("Heading (level: {level})"),
-            m::Tag::BlockQuote => "Blockquote".to_string(),
+            m::Tag::Heading { level, .. } => format!("Heading (level: {level})"),
+            m::Tag::BlockQuote(..) => "Blockquote".to_string(),
             m::Tag::CodeBlock(_) => "Code block".to_string(),
             m::Tag::Emphasis => "Emphasis".to_string(),
             m::Tag::FootnoteDefinition(_) => "Footnote definition".to_string(),
-            m::Tag::Image(link_type, dest, title) => {
-                format!("Image ({})", pretty_link(*link_type, dest, title))
+            m::Tag::Image {
+                link_type,
+                dest_url,
+                title,
+                ..
+            } => {
+                format!("Image ({})", pretty_link(*link_type, dest_url, title))
             }
-            m::Tag::Link(link_type, dest, title) => {
-                format!("Link ({})", pretty_link(*link_type, dest, title))
+            m::Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                ..
+            } => {
+                format!("Link ({})", pretty_link(*link_type, dest_url, title))
             }
             m::Tag::Item => "Item".to_string(),
             m::Tag::List(option) => match option {
@@ -989,6 +1006,7 @@ fn pretty(node: &ast::Node) -> String {
             m::Tag::TableRow => "Table row".to_string(),
             m::Tag::TableHead => "Table head".to_string(),
         },
+        m::Event::End(..) => String::new(),
         m::Event::FootnoteReference(_) => "Footnote reference".to_string(),
         m::Event::SoftBreak => "Soft break".to_string(),
         m::Event::HardBreak => "Hard break".to_string(),
@@ -1841,8 +1859,8 @@ fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
             .nodes()
             .iter()
             .filter_map(|node: &ast::Node| match &node.data {
-                m::Event::Start(m::Tag::Link(_, dest, _)) => {
-                    let (document, _anchor) = from_reference(dest.as_ref(), &uri)?;
+                m::Event::Start(m::Tag::Link { dest_url, .. }) => {
+                    let (document, _anchor) = from_reference(dest_url.as_ref(), &uri)?;
 
                     let uri = uri.clone();
 

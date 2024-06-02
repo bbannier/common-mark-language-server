@@ -5,11 +5,12 @@ expression: "parse(&input, &get_linebreaks(&input))"
 [
     Node {
         data: Start(
-            Heading(
-                H1,
-                None,
-                [],
-            ),
+            Heading {
+                level: H1,
+                id: None,
+                classes: [],
+                attrs: [],
+            },
         ),
         range: Range {
             start: Position {
@@ -49,8 +50,6 @@ expression: "parse(&input, &get_linebreaks(&input))"
         data: End(
             Heading(
                 H1,
-                None,
-                [],
             ),
         ),
         range: Range {
@@ -68,11 +67,12 @@ expression: "parse(&input, &get_linebreaks(&input))"
     },
     Node {
         data: Start(
-            Heading(
-                H1,
-                None,
-                [],
-            ),
+            Heading {
+                level: H1,
+                id: None,
+                classes: [],
+                attrs: [],
+            },
         ),
         range: Range {
             start: Position {
@@ -112,8 +112,6 @@ expression: "parse(&input, &get_linebreaks(&input))"
         data: End(
             Heading(
                 H1,
-                None,
-                [],
             ),
         ),
         range: Range {

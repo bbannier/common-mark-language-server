@@ -1,15 +1,16 @@
 ---
 source: src/ast.rs
-expression: parse
+expression: "parse(&input, &get_linebreaks(&input))"
 ---
 [
     Node {
         data: Start(
-            Heading(
-                H1,
-                None,
-                [],
-            ),
+            Heading {
+                level: H1,
+                id: None,
+                classes: [],
+                attrs: [],
+            },
         ),
         range: Range {
             start: Position {
@@ -49,8 +50,6 @@ expression: parse
         data: End(
             Heading(
                 H1,
-                None,
-                [],
             ),
         ),
         range: Range {

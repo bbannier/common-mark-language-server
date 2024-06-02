@@ -83,7 +83,7 @@ pub fn parse<'a>(input: &'a str, linebreaks: &[usize]) -> AstNodes<'a> {
         .iter()
         .enumerate()
         .map(|(i, node)| match &node.data {
-            Event::Start(Tag::Heading(_, _, _)) => {
+            Event::Start(Tag::Heading { .. }) => {
                 ast.iter().skip(i).find_map(|node| match &node.data {
                     Event::Text(text) => {
                         if let Some(count) = repetitions.get_mut(text.as_ref()) {
