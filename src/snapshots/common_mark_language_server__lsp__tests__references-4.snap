@@ -1,0 +1,79 @@
+---
+source: src/lsp.rs
+expression: "server.send_request::<request::References>(ReferenceParams {\n        text_document_position: TextDocumentPositionParams {\n            text_document: TextDocumentIdentifier::new(uri.clone()),\n            position: Position::new(2, 7),\n        },\n        context: ReferenceContext { include_declaration: true },\n        work_done_progress_params: WorkDoneProgressParams::default(),\n        partial_result_params: PartialResultParams::default(),\n    })"
+---
+Ok(
+    Some(
+        [
+            Location {
+                uri: Url {
+                    scheme: "file",
+                    cannot_be_a_base: false,
+                    username: "",
+                    password: None,
+                    host: None,
+                    port: None,
+                    path: "/foo.md",
+                    query: None,
+                    fragment: None,
+                },
+                range: Range {
+                    start: Position {
+                        line: 2,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 11,
+                    },
+                },
+            },
+            Location {
+                uri: Url {
+                    scheme: "file",
+                    cannot_be_a_base: false,
+                    username: "",
+                    password: None,
+                    host: None,
+                    port: None,
+                    path: "/foo.md",
+                    query: None,
+                    fragment: None,
+                },
+                range: Range {
+                    start: Position {
+                        line: 6,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 6,
+                        character: 11,
+                    },
+                },
+            },
+            Location {
+                uri: Url {
+                    scheme: "file",
+                    cannot_be_a_base: false,
+                    username: "",
+                    password: None,
+                    host: None,
+                    port: None,
+                    path: "/foo.md",
+                    query: None,
+                    fragment: None,
+                },
+                range: Range {
+                    start: Position {
+                        line: 2,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 11,
+                    },
+                },
+            },
+        ],
+    ),
+)

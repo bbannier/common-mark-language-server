@@ -1,0 +1,42 @@
+---
+source: src/ast.rs
+expression: "ast.at(Position::new(0, 0))"
+---
+[
+    Node {
+        data: Text(
+            Borrowed(
+                "asdasad sdaasa aasd asdasdasdada",
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 32,
+            },
+        },
+        offsets: 0..32,
+        anchor: None,
+    },
+    Node {
+        data: Start(
+            Paragraph,
+        ),
+        range: Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 32,
+            },
+        },
+        offsets: 0..32,
+        anchor: None,
+    },
+]

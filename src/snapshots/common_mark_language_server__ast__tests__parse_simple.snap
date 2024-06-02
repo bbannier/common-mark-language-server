@@ -1,0 +1,122 @@
+---
+source: src/ast.rs
+expression: parse
+---
+[
+    Node {
+        data: Start(
+            Heading(
+                H1,
+                None,
+                [],
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 2,
+                character: 0,
+            },
+        },
+        offsets: 1..6,
+        anchor: Some(
+            "h1",
+        ),
+    },
+    Node {
+        data: Text(
+            Borrowed(
+                "H1",
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 1,
+                character: 2,
+            },
+            end: Position {
+                line: 1,
+                character: 4,
+            },
+        },
+        offsets: 3..5,
+        anchor: None,
+    },
+    Node {
+        data: End(
+            Heading(
+                H1,
+                None,
+                [],
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 2,
+                character: 0,
+            },
+        },
+        offsets: 1..6,
+        anchor: None,
+    },
+    Node {
+        data: Start(
+            Paragraph,
+        ),
+        range: Range {
+            start: Position {
+                line: 3,
+                character: 0,
+            },
+            end: Position {
+                line: 4,
+                character: 0,
+            },
+        },
+        offsets: 7..16,
+        anchor: None,
+    },
+    Node {
+        data: Text(
+            Borrowed(
+                "Foo bar.",
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 3,
+                character: 0,
+            },
+            end: Position {
+                line: 3,
+                character: 8,
+            },
+        },
+        offsets: 7..15,
+        anchor: None,
+    },
+    Node {
+        data: End(
+            Paragraph,
+        ),
+        range: Range {
+            start: Position {
+                line: 3,
+                character: 0,
+            },
+            end: Position {
+                line: 4,
+                character: 0,
+            },
+        },
+        offsets: 7..16,
+        anchor: None,
+    },
+]

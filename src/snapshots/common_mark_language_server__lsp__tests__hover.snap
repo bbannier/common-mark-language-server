@@ -1,0 +1,29 @@
+---
+source: src/lsp.rs
+expression: "server.send_request::<request::HoverRequest>(HoverParams {\n        text_document_position_params: TextDocumentPositionParams::new(TextDocumentIdentifier {\n                uri: uri.clone(),\n            }, Position::new(0, 2)),\n        work_done_progress_params: WorkDoneProgressParams::default(),\n    })"
+---
+Ok(
+    Some(
+        Hover {
+            contents: Array(
+                [
+                    String(
+                        "Text",
+                    ),
+                ],
+            ),
+            range: Some(
+                Range {
+                    start: Position {
+                        line: 0,
+                        character: 2,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 9,
+                    },
+                },
+            ),
+        },
+    ),
+)

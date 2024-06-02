@@ -1,0 +1,44 @@
+---
+source: src/lsp.rs
+expression: "server.notification::<notification::PublishDiagnostics>()"
+---
+Ok(
+    PublishDiagnosticsParams {
+        uri: Url {
+            scheme: "file",
+            cannot_be_a_base: false,
+            username: "",
+            password: None,
+            host: None,
+            port: None,
+            path: "/foo.md",
+            query: None,
+            fragment: None,
+        },
+        diagnostics: [
+            Diagnostic {
+                range: Range {
+                    start: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 1,
+                        character: 13,
+                    },
+                },
+                severity: Some(
+                    Error,
+                ),
+                code: None,
+                code_description: None,
+                source: None,
+                message: "file 'file:///bar.md' not found",
+                related_information: None,
+                tags: None,
+                data: None,
+            },
+        ],
+        version: None,
+    },
+)

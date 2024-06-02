@@ -1059,12 +1059,13 @@ fn from_reference<'a>(reference: &'a str, from: &Url) -> Option<(Url, Option<&'a
 
 #[cfg(test)]
 mod tests {
+    use insta::assert_debug_snapshot;
     use lsp_types::WorkspaceSymbolResponse;
 
     use {
         super::*,
         lsp_types::{
-            CompletionResponse, InitializedParams, PartialResultParams, ReferenceContext,
+            InitializedParams, PartialResultParams, ReferenceContext,
             TextDocumentContentChangeEvent, TextDocumentIdentifier, TextDocumentItem,
             TextDocumentPositionParams, VersionedTextDocumentIdentifier, WorkDoneProgressParams,
         },
@@ -1309,24 +1310,13 @@ mod tests {
             "The first character should match a heading"
         );
 
-        assert_eq!(
-            server
-                .send_request::<request::HoverRequest>(HoverParams {
-                    text_document_position_params: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier { uri: uri.clone() },
-                        Position::new(0, 2)
-                    ),
-                    work_done_progress_params: WorkDoneProgressParams::default()
-                })
-                .unwrap(),
-            Some(Hover {
-                contents: HoverContents::Array(vec![MarkedString::from_markdown(
-                    "Text".to_string()
-                )]),
-                range: Some(Range::new(Position::new(0, 2), Position::new(0, 9))),
-            }),
-            "The third character should match text"
-        );
+        assert_debug_snapshot!(server.send_request::<request::HoverRequest>(HoverParams {
+            text_document_position_params: TextDocumentPositionParams::new(
+                TextDocumentIdentifier { uri: uri.clone() },
+                Position::new(0, 2)
+            ),
+            work_done_progress_params: WorkDoneProgressParams::default()
+        }));
 
         // Change the document to contain inline code.
         server.send_notification::<notification::DidChangeTextDocument>(
@@ -1340,24 +1330,13 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            server
-                .send_request::<request::HoverRequest>(HoverParams {
-                    text_document_position_params: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier { uri },
-                        Position::new(0, 3)
-                    ),
-                    work_done_progress_params: WorkDoneProgressParams::default()
-                })
-                .unwrap(),
-            Some(Hover {
-                contents: HoverContents::Array(vec![MarkedString::from_markdown(
-                    "Inline code".to_string()
-                )]),
-                range: Some(Range::new(Position::new(0, 0), Position::new(0, 12))),
-            }),
-            "The fourth character should match inline code"
-        );
+        assert_debug_snapshot!(server.send_request::<request::HoverRequest>(HoverParams {
+            text_document_position_params: TextDocumentPositionParams::new(
+                TextDocumentIdentifier { uri },
+                Position::new(0, 3)
+            ),
+            work_done_progress_params: WorkDoneProgressParams::default()
+        }));
     }
 
     #[test]
@@ -1379,55 +1358,40 @@ mod tests {
             ),
         });
 
-        assert_eq!(
-            server
-                .send_request::<request::Completion>(CompletionParams {
-                    text_document_position: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(uri.clone()),
-                        Position::new(2, 12),
-                    ),
-                    context: None,
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(CompletionResponse::from(vec![CompletionItem::new_simple(
-                "#heading".into(),
-                "# heading\n".into()
-            )])),
-            "Completion at reference should complete heading"
+        assert_debug_snapshot!(
+            server.send_request::<request::Completion>(CompletionParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(uri.clone()),
+                    Position::new(2, 12),
+                ),
+                context: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            })
         );
 
-        assert_eq!(
-            server
-                .send_request::<request::Completion>(CompletionParams {
-                    text_document_position: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(uri.clone()),
-                        Position::new(2, 2),
-                    ),
-                    context: None,
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(CompletionResponse::from(vec![])),
-            "Completion in the middle of reference should not complete anything",
+        assert_debug_snapshot!(
+            server.send_request::<request::Completion>(CompletionParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(uri.clone()),
+                    Position::new(2, 2),
+                ),
+                context: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            })
         );
 
-        assert_eq!(
-            server
-                .send_request::<request::Completion>(CompletionParams {
-                    text_document_position: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(uri),
-                        Position::new(1, 0),
-                    ),
-                    context: None,
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(CompletionResponse::from(vec![])),
-            "Completion at heading should not complete anything"
+        assert_debug_snapshot!(
+            server.send_request::<request::Completion>(CompletionParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(uri),
+                    Position::new(1, 0),
+                ),
+                context: None,
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            })
         );
     }
 
@@ -1457,128 +1421,65 @@ mod tests {
             ),
         });
 
-        assert_eq!(
-            server
-                .send_request::<request::References>(ReferenceParams {
-                    text_document_position: TextDocumentPositionParams {
-                        text_document: TextDocumentIdentifier::new(uri.clone()),
-                        position: Position::new(0, 0),
-                    },
-                    context: ReferenceContext {
-                        include_declaration: false,
-                    },
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            None
-        );
+        assert_debug_snapshot!(server.send_request::<request::References>(ReferenceParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                position: Position::new(0, 0),
+            },
+            context: ReferenceContext {
+                include_declaration: false,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }));
 
-        assert_eq!(
-            server
-                .send_request::<request::References>(ReferenceParams {
-                    text_document_position: TextDocumentPositionParams {
-                        text_document: TextDocumentIdentifier::new(uri.clone()),
-                        position: Position::new(1, 0),
-                    },
-                    context: ReferenceContext {
-                        include_declaration: true,
-                    },
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default()
-                })
-                .unwrap(),
-            Some(vec![
-                Location::new(
-                    uri.clone(),
-                    Range::new(Position::new(2, 0), Position::new(2, 11))
-                ),
-                Location::new(
-                    uri.clone(),
-                    Range::new(Position::new(6, 0), Position::new(6, 11))
-                ),
-                Location::new(
-                    uri.clone(),
-                    Range::new(Position::new(1, 0), Position::new(2, 0))
-                ),
-            ])
-        );
+        assert_debug_snapshot!(server.send_request::<request::References>(ReferenceParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                position: Position::new(1, 0),
+            },
+            context: ReferenceContext {
+                include_declaration: true,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default()
+        }));
 
-        assert_eq!(
-            server
-                .send_request::<request::References>(ReferenceParams {
-                    text_document_position: TextDocumentPositionParams {
-                        text_document: TextDocumentIdentifier::new(uri.clone()),
-                        position: Position::new(1, 0),
-                    },
-                    context: ReferenceContext {
-                        include_declaration: false,
-                    },
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default()
-                })
-                .unwrap(),
-            Some(vec![
-                Location::new(
-                    uri.clone(),
-                    Range::new(Position::new(2, 0), Position::new(2, 11))
-                ),
-                Location::new(
-                    uri.clone(),
-                    Range::new(Position::new(6, 0), Position::new(6, 11))
-                ),
-            ])
-        );
+        assert_debug_snapshot!(server.send_request::<request::References>(ReferenceParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                position: Position::new(1, 0),
+            },
+            context: ReferenceContext {
+                include_declaration: false,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default()
+        }));
 
-        assert_eq!(
-            server
-                .send_request::<request::References>(ReferenceParams {
-                    text_document_position: TextDocumentPositionParams {
-                        text_document: TextDocumentIdentifier::new(uri.clone()),
-                        position: Position::new(2, 7),
-                    },
-                    context: ReferenceContext {
-                        include_declaration: true,
-                    },
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(vec![
-                Location::new(
-                    uri.clone(),
-                    Range::new(Position::new(2, 0), Position::new(2, 11))
-                ),
-                Location::new(
-                    uri.clone(),
-                    Range::new(Position::new(6, 0), Position::new(6, 11))
-                ),
-                Location::new(
-                    uri.clone(),
-                    Range::new(Position::new(2, 0), Position::new(2, 11))
-                ),
-            ])
-        );
+        assert_debug_snapshot!(server.send_request::<request::References>(ReferenceParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                position: Position::new(2, 7),
+            },
+            context: ReferenceContext {
+                include_declaration: true,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }));
 
-        assert_eq!(
-            server
-                .send_request::<request::References>(ReferenceParams {
-                    text_document_position: TextDocumentPositionParams {
-                        text_document: TextDocumentIdentifier::new(uri.clone()),
-                        position: Position::new(9, 0),
-                    },
-                    context: ReferenceContext {
-                        include_declaration: true,
-                    },
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(vec![Location::new(
-                uri,
-                Range::new(Position::new(9, 0), Position::new(9, 17))
-            ),])
-        );
+        assert_debug_snapshot!(server.send_request::<request::References>(ReferenceParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                position: Position::new(9, 0),
+            },
+            context: ReferenceContext {
+                include_declaration: true,
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+        }));
     }
 
     #[test]
@@ -1612,56 +1513,38 @@ mod tests {
             ),
         });
 
-        assert_eq!(
-            server
-                .send_request::<request::GotoDefinition>(GotoDefinitionParams {
-                    text_document_position_params: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(file2.clone()),
-                        Position::new(2, 0),
-                    ),
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default()
-                })
-                .unwrap(),
-            Some(GotoDefinitionResponse::Scalar(Location::new(
-                file2.clone(),
-                Range::new(Position::new(1, 0), Position::new(2, 0))
-            )))
-        );
+        assert_debug_snapshot!(server.send_request::<request::GotoDefinition>(
+            GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file2.clone()),
+                    Position::new(2, 0),
+                ),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default()
+            }
+        ));
 
-        assert_eq!(
-            server
-                .send_request::<request::GotoDefinition>(GotoDefinitionParams {
-                    text_document_position_params: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(file2.clone()),
-                        Position::new(3, 0),
-                    ),
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(GotoDefinitionResponse::Scalar(Location::new(
-                file1.clone(),
-                Range::new(Position::new(0, 0), Position::new(0, 0))
-            )))
-        );
+        assert_debug_snapshot!(server.send_request::<request::GotoDefinition>(
+            GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file2.clone()),
+                    Position::new(3, 0),
+                ),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            }
+        ));
 
-        assert_eq!(
-            server
-                .send_request::<request::GotoDefinition>(GotoDefinitionParams {
-                    text_document_position_params: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(file2),
-                        Position::new(4, 0),
-                    ),
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(GotoDefinitionResponse::Scalar(Location::new(
-                file1,
-                Range::new(Position::new(0, 0), Position::new(0, 5))
-            )))
-        );
+        assert_debug_snapshot!(server.send_request::<request::GotoDefinition>(
+            GotoDefinitionParams {
+                text_document_position_params: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file2),
+                    Position::new(4, 0),
+                ),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            }
+        ));
     }
 
     #[test]
@@ -1694,33 +1577,13 @@ mod tests {
             ),
         });
 
-        assert_eq!(
-            server
-                .send_request::<request::FoldingRangeRequest>(FoldingRangeParams {
-                    text_document: TextDocumentIdentifier::new(uri),
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(vec![
-                FoldingRange {
-                    start_line: 1,
-                    start_character: None,
-                    end_line: 13,
-                    end_character: None,
-                    kind: Some(FoldingRangeKind::Region),
-                    ..FoldingRange::default()
-                },
-                FoldingRange {
-                    start_line: 6,
-                    start_character: None,
-                    end_line: 13,
-                    end_character: None,
-                    kind: Some(FoldingRangeKind::Region),
-                    ..FoldingRange::default()
-                }
-            ]),
-        );
+        assert_debug_snapshot!(server.send_request::<request::FoldingRangeRequest>(
+            FoldingRangeParams {
+                text_document: TextDocumentIdentifier::new(uri),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            }
+        ));
     }
 
     #[test]
@@ -1742,41 +1605,13 @@ mod tests {
             ),
         });
 
-        assert_eq!(
-            server
-                .send_request::<request::DocumentSymbolRequest>(DocumentSymbolParams {
-                    text_document: TextDocumentIdentifier::new(uri.clone()),
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(DocumentSymbolResponse::from(vec![
-                #[allow(deprecated)]
-                SymbolInformation {
-                    name: "# h1\n".into(),
-                    location: Location::new(
-                        uri.clone(),
-                        Range::new(Position::new(1, 0), Position::new(2, 0))
-                    ),
-                    kind: SymbolKind::STRING,
-                    deprecated: None,
-                    container_name: None,
-                    tags: None,
-                },
-                #[allow(deprecated)]
-                SymbolInformation {
-                    name: "## h2\n".into(),
-                    location: Location::new(
-                        uri,
-                        Range::new(Position::new(2, 0), Position::new(3, 0))
-                    ),
-                    kind: SymbolKind::STRING,
-                    deprecated: None,
-                    container_name: None,
-                    tags: None,
-                },
-            ])),
-        );
+        assert_debug_snapshot!(server.send_request::<request::DocumentSymbolRequest>(
+            DocumentSymbolParams {
+                text_document: TextDocumentIdentifier::new(uri.clone()),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            }
+        ));
     }
 
     #[test]
@@ -1812,74 +1647,30 @@ mod tests {
         });
 
         // An empty query returns all symbols.
-        assert_eq!(
-            server
-                .send_request::<request::WorkspaceSymbolRequest>(WorkspaceSymbolParams {
-                    query: String::new(),
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap()
-                .map(|symbols| {
-                    let mut symbols = match symbols {
-                        WorkspaceSymbolResponse::Flat(xs) => xs,
-                        _ => unreachable!(),
-                    };
-                    symbols.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-                    symbols
-                }),
-            Some(vec![
-                #[allow(deprecated)]
-                SymbolInformation {
-                    name: "# bar\n".into(),
-                    location: Location::new(
-                        file1,
-                        Range::new(Position::new(1, 0), Position::new(2, 0))
-                    ),
-                    kind: SymbolKind::STRING,
-                    deprecated: None,
-                    container_name: None,
-                    tags: None,
-                },
-                #[allow(deprecated)]
-                SymbolInformation {
-                    name: "# foo\n".into(),
-                    location: Location::new(
-                        file2.clone(),
-                        Range::new(Position::new(1, 0), Position::new(2, 0))
-                    ),
-                    kind: SymbolKind::STRING,
-                    deprecated: None,
-                    container_name: None,
-                    tags: None,
-                },
-            ]),
-        );
+        assert_debug_snapshot!(server
+            .send_request::<request::WorkspaceSymbolRequest>(WorkspaceSymbolParams {
+                query: String::new(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            })
+            .unwrap()
+            .map(|symbols| {
+                let mut symbols = match symbols {
+                    WorkspaceSymbolResponse::Flat(xs) => xs,
+                    _ => unreachable!(),
+                };
+                symbols.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+                symbols
+            }),);
 
         // With query matching symbols are returned.
-        assert_eq!(
-            server
-                .send_request::<request::WorkspaceSymbolRequest>(WorkspaceSymbolParams {
-                    query: "foo".into(),
-                    work_done_progress_params: WorkDoneProgressParams::default(),
-                    partial_result_params: PartialResultParams::default(),
-                })
-                .unwrap(),
-            Some(WorkspaceSymbolResponse::Flat(vec![
-                #[allow(deprecated)]
-                SymbolInformation {
-                    name: "# foo\n".into(),
-                    location: Location::new(
-                        file2,
-                        Range::new(Position::new(1, 0), Position::new(2, 0))
-                    ),
-                    kind: SymbolKind::STRING,
-                    deprecated: None,
-                    container_name: None,
-                    tags: None,
-                },
-            ])),
-        );
+        assert_debug_snapshot!(server.send_request::<request::WorkspaceSymbolRequest>(
+            WorkspaceSymbolParams {
+                query: "foo".into(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
+                partial_result_params: PartialResultParams::default(),
+            }
+        ));
     }
 
     #[test]
@@ -1915,47 +1706,27 @@ mod tests {
             ),
         });
 
-        assert_eq!(
-            server
-                .send_request::<request::Rename>(RenameParams {
-                    text_document_position: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(file1.clone()),
-                        Position::new(1, 3)
-                    ),
-                    new_name: "foo bar".into(),
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                })
-                .unwrap(),
-            Some(WorkspaceEdit::new({
-                let mut edits = HashMap::new();
+        fn sorted_edits(edit: WorkspaceEdit) -> Option<Vec<(Url, Vec<TextEdit>)>> {
+            edit.changes.map(|changes| {
+                let mut xs: Vec<_> = changes.into_iter().collect();
+                xs.sort_by(|a, b| a.0.cmp(&b.0));
+                xs
+            })
+        }
 
-                edits.insert(
-                    file1,
-                    vec![
-                        TextEdit::new(
-                            Range::new(Position::new(1, 2), Position::new(1, 9)),
-                            "foo bar".into(),
-                        ),
-                        TextEdit::new(
-                            Range::new(Position::new(2, 11), Position::new(2, 18)),
-                            "foo-bar".into(),
-                        ),
-                    ],
-                );
-
-                edits.insert(
-                    file2,
-                    vec![TextEdit::new(
-                        Range::new(Position::new(1, 19), Position::new(1, 26)),
-                        "foo-bar".into(),
-                    )],
-                );
-
-                edits
-            }))
-        );
+        assert_debug_snapshot!(server
+            .send_request::<request::Rename>(RenameParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file1.clone()),
+                    Position::new(1, 3),
+                ),
+                new_name: "foo bar".into(),
+                work_done_progress_params: WorkDoneProgressParams {
+                    work_done_token: None,
+                },
+            })
+            .unwrap()
+            .map(sorted_edits));
 
         let file3 = Url::from_file_path("/file3.md").unwrap();
         server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
@@ -1973,83 +1744,47 @@ mod tests {
             ),
         });
 
-        assert_eq!(
-            server
-                .send_request::<request::Rename>(RenameParams {
-                    text_document_position: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(file3.clone()),
-                        Position::new(1, 2)
-                    ),
-                    new_name: "H1".into(),
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                })
-                .unwrap(),
-            Some(WorkspaceEdit::new({
-                let mut edits = HashMap::new();
-                edits.insert(
-                    file3.clone(),
-                    vec![TextEdit::new(
-                        Range::new(Position::new(1, 2), Position::new(1, 4)),
-                        "H1".into(),
-                    )],
-                );
-                edits
-            }))
-        );
+        assert_debug_snapshot!(server
+            .send_request::<request::Rename>(RenameParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file3.clone()),
+                    Position::new(1, 2)
+                ),
+                new_name: "H1".into(),
+                work_done_progress_params: WorkDoneProgressParams {
+                    work_done_token: None
+                },
+            })
+            .unwrap()
+            .map(sorted_edits));
 
-        assert_eq!(
-            server
-                .send_request::<request::Rename>(RenameParams {
-                    text_document_position: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(file3.clone()),
-                        Position::new(2, 3)
-                    ),
-                    new_name: "H2".into(),
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                })
-                .unwrap(),
-            Some(WorkspaceEdit::new({
-                let mut edits = HashMap::new();
-                edits.insert(
-                    file3.clone(),
-                    vec![TextEdit::new(
-                        Range::new(Position::new(2, 3), Position::new(2, 5)),
-                        "H2".into(),
-                    )],
-                );
-                edits
-            }))
-        );
+        assert_debug_snapshot!(server
+            .send_request::<request::Rename>(RenameParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file3.clone()),
+                    Position::new(2, 3)
+                ),
+                new_name: "H2".into(),
+                work_done_progress_params: WorkDoneProgressParams {
+                    work_done_token: None
+                },
+            })
+            .unwrap()
+            .map(sorted_edits));
 
-        assert_eq!(
-            server
-                .send_request::<request::Rename>(RenameParams {
-                    text_document_position: TextDocumentPositionParams::new(
-                        TextDocumentIdentifier::new(file3.clone()),
-                        Position::new(3, 4)
-                    ),
-                    new_name: "H3".into(),
-                    work_done_progress_params: WorkDoneProgressParams {
-                        work_done_token: None
-                    },
-                })
-                .unwrap(),
-            Some(WorkspaceEdit::new({
-                let mut edits = HashMap::new();
-                edits.insert(
-                    file3,
-                    vec![TextEdit::new(
-                        Range::new(Position::new(3, 4), Position::new(3, 6)),
-                        "H3".into(),
-                    )],
-                );
-                edits
-            }))
-        );
+        assert_debug_snapshot!(server
+            .send_request::<request::Rename>(RenameParams {
+                text_document_position: TextDocumentPositionParams::new(
+                    TextDocumentIdentifier::new(file3.clone()),
+                    Position::new(3, 4)
+                ),
+                new_name: "H3".into(),
+                work_done_progress_params: WorkDoneProgressParams {
+                    work_done_token: None
+                },
+            })
+            .unwrap()
+            .map(sorted_edits));
     }
 
     #[test]
@@ -2070,24 +1805,7 @@ mod tests {
             ),
         });
 
-        assert_eq!(
-            server
-                .notification::<notification::PublishDiagnostics>()
-                .unwrap(),
-            PublishDiagnosticsParams::new(
-                file2,
-                vec![Diagnostic::new(
-                    Range::new(Position::new(1, 0), Position::new(1, 13)),
-                    Some(DiagnosticSeverity::ERROR),
-                    None,
-                    None,
-                    "file 'file:///bar.md' not found".into(),
-                    None,
-                    None,
-                )],
-                None,
-            )
-        );
+        assert_debug_snapshot!(server.notification::<notification::PublishDiagnostics>());
     }
 }
 

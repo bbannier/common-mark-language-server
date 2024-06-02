@@ -1,0 +1,33 @@
+---
+source: src/lsp.rs
+expression: "server.send_request::<request::GotoDefinition>(GotoDefinitionParams {\n        text_document_position_params: TextDocumentPositionParams::new(TextDocumentIdentifier::new(file2.clone()),\n            Position::new(2, 0)),\n        work_done_progress_params: WorkDoneProgressParams::default(),\n        partial_result_params: PartialResultParams::default(),\n    })"
+---
+Ok(
+    Some(
+        Scalar(
+            Location {
+                uri: Url {
+                    scheme: "file",
+                    cannot_be_a_base: false,
+                    username: "",
+                    password: None,
+                    host: None,
+                    port: None,
+                    path: "/file2.md",
+                    query: None,
+                    fragment: None,
+                },
+                range: Range {
+                    start: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 0,
+                    },
+                },
+            },
+        ),
+    ),
+)

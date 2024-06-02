@@ -1,0 +1,34 @@
+---
+source: src/lsp.rs
+expression: "server.send_request::<request::Completion>(CompletionParams {\n        text_document_position: TextDocumentPositionParams::new(TextDocumentIdentifier::new(uri.clone()),\n            Position::new(2, 12)),\n        context: None,\n        work_done_progress_params: WorkDoneProgressParams::default(),\n        partial_result_params: PartialResultParams::default(),\n    })"
+---
+Ok(
+    Some(
+        Array(
+            [
+                CompletionItem {
+                    label: "#heading",
+                    label_details: None,
+                    kind: None,
+                    detail: Some(
+                        "# heading\n",
+                    ),
+                    documentation: None,
+                    deprecated: None,
+                    preselect: None,
+                    sort_text: None,
+                    filter_text: None,
+                    insert_text: None,
+                    insert_text_format: None,
+                    insert_text_mode: None,
+                    text_edit: None,
+                    additional_text_edits: None,
+                    command: None,
+                    commit_characters: None,
+                    data: None,
+                    tags: None,
+                },
+            ],
+        ),
+    ),
+)

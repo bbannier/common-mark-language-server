@@ -1,0 +1,132 @@
+---
+source: src/ast.rs
+expression: "parse(&input, &get_linebreaks(&input))"
+---
+[
+    Node {
+        data: Start(
+            Heading(
+                H1,
+                None,
+                [],
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 2,
+                character: 0,
+            },
+        },
+        offsets: 1..11,
+        anchor: Some(
+            "heading-1",
+        ),
+    },
+    Node {
+        data: Text(
+            Borrowed(
+                "heading",
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 1,
+                character: 2,
+            },
+            end: Position {
+                line: 1,
+                character: 9,
+            },
+        },
+        offsets: 3..10,
+        anchor: None,
+    },
+    Node {
+        data: End(
+            Heading(
+                H1,
+                None,
+                [],
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 2,
+                character: 0,
+            },
+        },
+        offsets: 1..11,
+        anchor: None,
+    },
+    Node {
+        data: Start(
+            Heading(
+                H1,
+                None,
+                [],
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 2,
+                character: 0,
+            },
+            end: Position {
+                line: 3,
+                character: 0,
+            },
+        },
+        offsets: 11..21,
+        anchor: Some(
+            "heading-2",
+        ),
+    },
+    Node {
+        data: Text(
+            Borrowed(
+                "heading",
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 2,
+                character: 2,
+            },
+            end: Position {
+                line: 2,
+                character: 9,
+            },
+        },
+        offsets: 13..20,
+        anchor: None,
+    },
+    Node {
+        data: End(
+            Heading(
+                H1,
+                None,
+                [],
+            ),
+        ),
+        range: Range {
+            start: Position {
+                line: 2,
+                character: 0,
+            },
+            end: Position {
+                line: 3,
+                character: 0,
+            },
+        },
+        offsets: 11..21,
+        anchor: None,
+    },
+]

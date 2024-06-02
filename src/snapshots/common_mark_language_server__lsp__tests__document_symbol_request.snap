@@ -1,0 +1,72 @@
+---
+source: src/lsp.rs
+expression: "server.send_request::<request::DocumentSymbolRequest>(DocumentSymbolParams {\n        text_document: TextDocumentIdentifier::new(uri.clone()),\n        work_done_progress_params: WorkDoneProgressParams::default(),\n        partial_result_params: PartialResultParams::default(),\n    })"
+---
+Ok(
+    Some(
+        Flat(
+            [
+                SymbolInformation {
+                    name: "# h1\n",
+                    kind: String,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: Url {
+                            scheme: "file",
+                            cannot_be_a_base: false,
+                            username: "",
+                            password: None,
+                            host: None,
+                            port: None,
+                            path: "/foo.md",
+                            query: None,
+                            fragment: None,
+                        },
+                        range: Range {
+                            start: Position {
+                                line: 1,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: 2,
+                                character: 0,
+                            },
+                        },
+                    },
+                    container_name: None,
+                },
+                SymbolInformation {
+                    name: "## h2\n",
+                    kind: String,
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: Url {
+                            scheme: "file",
+                            cannot_be_a_base: false,
+                            username: "",
+                            password: None,
+                            host: None,
+                            port: None,
+                            path: "/foo.md",
+                            query: None,
+                            fragment: None,
+                        },
+                        range: Range {
+                            start: Position {
+                                line: 2,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: 3,
+                                character: 0,
+                            },
+                        },
+                    },
+                    container_name: None,
+                },
+            ],
+        ),
+    ),
+)

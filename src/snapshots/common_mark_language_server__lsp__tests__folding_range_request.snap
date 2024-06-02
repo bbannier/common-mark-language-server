@@ -1,0 +1,30 @@
+---
+source: src/lsp.rs
+expression: "server.send_request::<request::FoldingRangeRequest>(FoldingRangeParams {\n        text_document: TextDocumentIdentifier::new(uri),\n        work_done_progress_params: WorkDoneProgressParams::default(),\n        partial_result_params: PartialResultParams::default(),\n    })"
+---
+Ok(
+    Some(
+        [
+            FoldingRange {
+                start_line: 1,
+                start_character: None,
+                end_line: 13,
+                end_character: None,
+                kind: Some(
+                    Region,
+                ),
+                collapsed_text: None,
+            },
+            FoldingRange {
+                start_line: 6,
+                start_character: None,
+                end_line: 13,
+                end_character: None,
+                kind: Some(
+                    Region,
+                ),
+                collapsed_text: None,
+            },
+        ],
+    ),
+)

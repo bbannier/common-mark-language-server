@@ -1,0 +1,79 @@
+---
+source: src/lsp.rs
+expression: "server.send_request::<request::Rename>(RenameParams {\n                text_document_position: TextDocumentPositionParams::new(TextDocumentIdentifier::new(file1.clone()),\n                    Position::new(1, 3)),\n                new_name: \"foo bar\".into(),\n                work_done_progress_params: WorkDoneProgressParams {\n                    work_done_token: None,\n                },\n            }).unwrap().map(sorted_edits)"
+---
+Some(
+    Some(
+        [
+            (
+                Url {
+                    scheme: "file",
+                    cannot_be_a_base: false,
+                    username: "",
+                    password: None,
+                    host: None,
+                    port: None,
+                    path: "/file1.md",
+                    query: None,
+                    fragment: None,
+                },
+                [
+                    TextEdit {
+                        range: Range {
+                            start: Position {
+                                line: 1,
+                                character: 2,
+                            },
+                            end: Position {
+                                line: 1,
+                                character: 9,
+                            },
+                        },
+                        new_text: "foo bar",
+                    },
+                    TextEdit {
+                        range: Range {
+                            start: Position {
+                                line: 2,
+                                character: 11,
+                            },
+                            end: Position {
+                                line: 2,
+                                character: 18,
+                            },
+                        },
+                        new_text: "foo-bar",
+                    },
+                ],
+            ),
+            (
+                Url {
+                    scheme: "file",
+                    cannot_be_a_base: false,
+                    username: "",
+                    password: None,
+                    host: None,
+                    port: None,
+                    path: "/file2.md",
+                    query: None,
+                    fragment: None,
+                },
+                [
+                    TextEdit {
+                        range: Range {
+                            start: Position {
+                                line: 1,
+                                character: 19,
+                            },
+                            end: Position {
+                                line: 1,
+                                character: 26,
+                            },
+                        },
+                        new_text: "foo-bar",
+                    },
+                ],
+            ),
+        ],
+    ),
+)

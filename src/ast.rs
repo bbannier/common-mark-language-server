@@ -209,15 +209,7 @@ pub fn anchor(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use {
-        super::*,
-        pulldown_cmark::HeadingLevel,
-        pulldown_cmark::{
-            CowStr,
-            Tag::{Heading, Paragraph},
-        },
-        textwrap::dedent,
-    };
+    use {super::*, insta::assert_debug_snapshot, textwrap::dedent};
 
     #[test]
     fn test_to_offset() {
@@ -280,51 +272,7 @@ mod tests {
             ",
         );
 
-        let parse = parse(&input, &get_linebreaks(&input));
-
-        assert_eq!(
-            parse,
-            vec![
-                Node {
-                    data: Event::Start(Heading(HeadingLevel::H1, None, Vec::new())),
-                    range: Range::new(Position::new(1, 0), Position::new(2, 0)),
-                    offsets: 1..6,
-                    anchor: Some("h1".to_string()),
-                },
-                Node {
-                    data: Event::Text(CowStr::Borrowed("H1")),
-                    range: Range::new(Position::new(1, 2), Position::new(1, 4)),
-                    offsets: 3..5,
-                    anchor: None,
-                },
-                Node {
-                    data: Event::End(Heading(HeadingLevel::H1, None, Vec::new())),
-                    range: Range::new(Position::new(1, 0), Position::new(2, 0)),
-                    offsets: 1..6,
-                    anchor: None,
-                },
-                Node {
-                    data: Event::Start(Paragraph),
-                    range: Range::new(Position::new(3, 0), Position::new(4, 0)),
-                    offsets: 7..16,
-                    anchor: None,
-                },
-                Node {
-                    data: Event::Text(CowStr::Borrowed("Foo bar.")),
-                    range: Range::new(Position::new(3, 0), Position::new(3, 8)),
-                    offsets: 7..15,
-                    anchor: None,
-                },
-                Node {
-                    data: Event::End(Paragraph),
-                    range: Range::new(Position::new(3, 0), Position::new(4, 0)),
-                    offsets: 7..16,
-                    anchor: None,
-                },
-            ],
-            "\n{:?}",
-            &input
-        );
+        assert_debug_snapshot!(parse(&input, &get_linebreaks(&input)));
     }
 
     #[test]
@@ -336,49 +284,7 @@ mod tests {
             ",
         );
 
-        let parse = parse(&input, &get_linebreaks(&input));
-
-        assert_eq!(
-            parse,
-            vec![
-                Node {
-                    data: Event::Start(Heading(HeadingLevel::H1, None, Vec::new())),
-                    range: Range::new(Position::new(1, 0,), Position::new(2, 0,),),
-                    offsets: 1..11,
-                    anchor: Some("heading-1".into()),
-                },
-                Node {
-                    data: Event::Text(CowStr::Borrowed("heading")),
-                    range: Range::new(Position::new(1, 2,), Position::new(1, 9,),),
-                    offsets: 3..10,
-                    anchor: None,
-                },
-                Node {
-                    data: Event::End(Heading(HeadingLevel::H1, None, Vec::new())),
-                    range: Range::new(Position::new(1, 0,), Position::new(2, 0,),),
-                    offsets: 1..11,
-                    anchor: None,
-                },
-                Node {
-                    data: Event::Start(Heading(HeadingLevel::H1, None, Vec::new())),
-                    range: Range::new(Position::new(2, 0,), Position::new(3, 0,),),
-                    offsets: 11..21,
-                    anchor: Some("heading-2".into()),
-                },
-                Node {
-                    data: Event::Text(CowStr::Borrowed("heading")),
-                    range: Range::new(Position::new(2, 2,), Position::new(2, 9,),),
-                    offsets: 13..20,
-                    anchor: None,
-                },
-                Node {
-                    data: Event::End(Heading(HeadingLevel::H1, None, Vec::new())),
-                    range: Range::new(Position::new(2, 0,), Position::new(3, 0,),),
-                    offsets: 11..21,
-                    anchor: None,
-                },
-            ]
-        );
+        assert_debug_snapshot!(parse(&input, &get_linebreaks(&input)));
     }
 
     #[test]
@@ -386,23 +292,7 @@ mod tests {
         let s = "asdasad sdaasa aasd asdasdasdada";
         let ast = ParsedDocument::from(s);
 
-        assert_eq!(
-            ast.at(Position::new(0, 0)),
-            vec![
-                &Node {
-                    data: Event::Text(CowStr::Borrowed("asdasad sdaasa aasd asdasdasdada")),
-                    range: Range::new(Position::new(0, 0), Position::new(0, 32)),
-                    offsets: 0..32,
-                    anchor: None
-                },
-                &Node {
-                    data: Event::Start(Paragraph),
-                    range: Range::new(Position::new(0, 0), Position::new(0, 32)),
-                    offsets: 0..32,
-                    anchor: None
-                }
-            ]
-        );
+        assert_debug_snapshot!(ast.at(Position::new(0, 0)));
     }
 
     #[test]

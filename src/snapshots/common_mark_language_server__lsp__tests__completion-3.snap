@@ -1,0 +1,11 @@
+---
+source: src/lsp.rs
+expression: "server.send_request::<request::Completion>(CompletionParams {\n        text_document_position: TextDocumentPositionParams::new(TextDocumentIdentifier::new(uri),\n            Position::new(1, 0)),\n        context: None,\n        work_done_progress_params: WorkDoneProgressParams::default(),\n        partial_result_params: PartialResultParams::default(),\n    })"
+---
+Ok(
+    Some(
+        Array(
+            [],
+        ),
+    ),
+)
