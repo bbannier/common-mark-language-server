@@ -139,7 +139,7 @@ pub struct ParsedDocument<'a> {
     linebreaks: Vec<usize>,
 }
 
-impl<'a> PartialEq for ParsedDocument<'a> {
+impl PartialEq for ParsedDocument<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.ast == other.ast
     }

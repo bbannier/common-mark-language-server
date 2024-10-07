@@ -1092,7 +1092,8 @@ mod tests {
     };
 
     struct TestServer {
-        _thread: jod_thread::JoinHandle<()>,
+        #[allow(dead_code)]
+        thread: jod_thread::JoinHandle<()>,
         client: Connection,
         req_id: Cell<i32>,
         notifications: (Sender<Notification>, Receiver<Notification>),
@@ -1106,7 +1107,7 @@ mod tests {
                 .start();
 
             let (connection, client) = Connection::memory();
-            let _thread = jod_thread::Builder::new()
+            let thread = jod_thread::Builder::new()
                 .name("test server".to_string())
                 .spawn(|| {
                     run_server(connection).unwrap();
@@ -1118,7 +1119,7 @@ mod tests {
             let notifications = crossbeam_channel::unbounded();
 
             let server = TestServer {
-                _thread,
+                thread,
                 client,
                 req_id,
                 notifications,
@@ -1166,8 +1167,8 @@ mod tests {
                         self.notifications.0.send(not).unwrap();
                         continue;
                     }
-                    otherwise => {
-                        info!("Dropping message '{:?}'", otherwise);
+                    lsp_server::Message::Request(request) => {
+                        info!("Dropping message '{:?}'", request);
                         continue;
                     }
                 }
@@ -1673,9 +1674,8 @@ mod tests {
             })
             .unwrap()
             .map(|symbols| {
-                let mut symbols = match symbols {
-                    WorkspaceSymbolResponse::Flat(xs) => xs,
-                    _ => unreachable!(),
+                let WorkspaceSymbolResponse::Flat(mut symbols) = symbols else {
+                    unreachable!()
                 };
                 symbols.sort_unstable_by(|left, right| left.name.cmp(&right.name));
                 symbols
@@ -1691,6 +1691,7 @@ mod tests {
         ));
     }
 
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn test_rename() {
         let server = TestServer::new();
@@ -1724,13 +1725,13 @@ mod tests {
             ),
         });
 
-        fn sorted_edits(edit: WorkspaceEdit) -> Option<Vec<(Url, Vec<TextEdit>)>> {
+        let sorted_edits = |edit: WorkspaceEdit| {
             edit.changes.map(|changes| {
                 let mut xs: Vec<_> = changes.into_iter().collect();
                 xs.sort_by(|a, b| a.0.cmp(&b.0));
                 xs
             })
-        }
+        };
 
         assert_debug_snapshot!(server
             .send_request::<request::Rename>(RenameParams {
