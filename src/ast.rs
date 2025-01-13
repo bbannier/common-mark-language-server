@@ -14,7 +14,7 @@ fn to_offset(position: Position, linebreaks: &[usize]) -> Option<usize> {
         .iter()
         .take(line)
         .map(|c| c + 1)
-        .last()
+        .next_back()
         .unwrap_or(0);
 
     Some(char_prev_lines + char)
