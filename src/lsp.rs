@@ -1828,8 +1828,8 @@ mod tests {
     }
 }
 
-#[salsa::query_group(SpicyStorage)]
-trait Spicy {
+#[salsa::query_group(DatabaseStorage)]
+trait Database {
     #[salsa::input]
     fn source_text(&self, uri: Arc<Url>) -> Arc<String>;
 
@@ -1838,7 +1838,7 @@ trait Spicy {
     fn diagnostics(&self, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec<Diagnostic>>>;
 }
 
-fn parsed(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Document> {
+fn parsed(db: &dyn Database, uri: Arc<Url>) -> Arc<Document> {
     let text = db.source_text(uri);
 
     let document = DocumentBuilder {
@@ -1851,7 +1851,7 @@ fn parsed(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Document> {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
+fn links(db: &dyn Database, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
     let document = db.parsed(uri.clone());
 
     Arc::new(
@@ -1877,7 +1877,7 @@ fn links(db: &dyn Spicy, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn diagnostics(db: &dyn Spicy, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec<Diagnostic>>> {
+fn diagnostics(db: &dyn Database, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec<Diagnostic>>> {
     let documents: Documents = documents
         .as_ref()
         .iter()
@@ -1918,7 +1918,7 @@ fn diagnostics(db: &dyn Spicy, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec
     Arc::new(diagnostics)
 }
 
-#[salsa::database(SpicyStorage)]
+#[salsa::database(DatabaseStorage)]
 #[derive(Default)]
 struct DatabaseStruct {
     storage: salsa::Storage<Self>,
