@@ -586,7 +586,7 @@ impl Server {
                                     headings
                                         .iter()
                                         .skip_while(|(_, n)| n.range != node.range)
-                                        .skip(1).find_map(|(&l, n)| if l <= *level {
+                                        .skip(1).find_map(|(l, n)| if *l <= level {
                                             // We let the range end before the next section. This
                                             // is safe as we need to have lines preceeding the
                                             // _next_ section.
