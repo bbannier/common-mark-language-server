@@ -28,4 +28,4 @@ clap = { version = "4.5.31", features = ["derive"] }
 insta = "1.41.1"
 
 [dev-dependencies]
-textwrap = "0.16.1"
+textwrap = "0.16.2"
