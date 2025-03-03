@@ -21,7 +21,7 @@ jod-thread = "0.1.2"
 crossbeam-channel = "0.5.14"
 static_assertions = "1.1.0"
 regex = "1.11.1"
-anyhow = "1.0.95"
+anyhow = "1.0.97"
 salsa = "0.17.0-pre.2"
 ouroboros = "0.18.5"
 clap = { version = "4.5.31", features = ["derive"] }
