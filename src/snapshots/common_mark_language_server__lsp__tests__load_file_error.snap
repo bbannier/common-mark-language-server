@@ -24,7 +24,7 @@ Ok(
                     },
                     end: Position {
                         line: 1,
-                        character: 13,
+                        character: 12,
                     },
                 },
                 severity: Some(

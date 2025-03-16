@@ -17,13 +17,13 @@ use {
     },
     ouroboros::self_referencing,
     pulldown_cmark::{self as m},
+    salsa::Setter,
     serde::{Deserialize, Serialize},
     static_assertions::assert_eq_size,
     std::{
         collections::{HashMap, VecDeque},
         fmt,
         path::Path,
-        sync::Arc,
     },
     url::Url,
 };
@@ -107,7 +107,7 @@ impl Tasks {
     }
 }
 
-type Documents = HashMap<Url, Arc<Document>>;
+type Documents = HashMap<Url, Document>;
 
 fn get_symbols(documents: &Documents, uri: &Url) -> Option<Vec<SymbolInformation>> {
     documents.get(uri).map(|document| {
@@ -176,7 +176,7 @@ struct Server {
     root_uri: Url,
     open_document: Option<Url>,
 
-    db: DatabaseStruct,
+    db: DbImpl,
 }
 
 struct StatusRequest;
@@ -222,7 +222,7 @@ pub fn run_server(connection: Connection) -> Result<()> {
 
     let tasks = Tasks::new();
 
-    let db = DatabaseStruct::default();
+    let db = DbImpl::default();
 
     let server = Server {
         connection,
@@ -805,12 +805,18 @@ impl Server {
 
         info!("updating {}", &uri);
 
-        self.db.set_source_text(uri.clone().into(), text.into());
-        let document = self.db.parsed(uri.clone().into());
+        if let Some(file) = self.db.file(&uri) {
+            file.set_text(&mut self.db).to(text);
+        } else {
+            self.db
+                .files
+                .insert(uri.clone(), SourceFile::new(&self.db, text));
+        }
+
+        let document = parsed(&self.db, &uri).unwrap();
 
         // Discover other documents we should parse and schedule them for parsing.
         let _dependencies = document
-            .as_ref()
             .borrow_parsed()
             .nodes()
             .iter()
@@ -1185,10 +1191,14 @@ mod tests {
             N::Params: Serialize,
         {
             let not = lsp_server::Notification::new(N::METHOD.into(), params);
-            self.client
+            if self
+                .client
                 .sender
                 .send(lsp_server::Message::Notification(not))
-                .unwrap();
+                .is_err()
+            {
+                return;
+            }
 
             // Loop until the server has processed the notification.
             loop {
@@ -1226,7 +1236,7 @@ mod tests {
 
     impl Drop for TestServer {
         fn drop(&mut self) {
-            self.send_request::<request::Shutdown>(()).unwrap();
+            let _ = self.send_request::<request::Shutdown>(());
             self.send_notification::<notification::Exit>(());
         }
     }
@@ -1818,7 +1828,7 @@ mod tests {
                 1,
                 dedent(
                     "
-                    [bar](bar.md)
+                    [ba](bar.md)
                     ",
                 ),
             ),
@@ -1828,100 +1838,47 @@ mod tests {
     }
 }
 
-#[salsa::query_group(DatabaseStorage)]
-trait Database {
-    #[salsa::input]
-    fn source_text(&self, uri: Arc<Url>) -> Arc<String>;
-
-    fn parsed(&self, uri: Arc<Url>) -> Arc<Document>;
-    fn links(&self, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>>;
-    fn diagnostics(&self, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec<Diagnostic>>>;
+#[salsa::db]
+trait Db: salsa::Database {
+    fn file(&self, uri: &Url) -> Option<SourceFile>;
 }
 
-fn parsed(db: &dyn Database, uri: Arc<Url>) -> Arc<Document> {
-    let text = db.source_text(uri);
+#[derive(Clone, Default)]
+#[salsa::db]
+struct DbImpl {
+    storage: salsa::Storage<Self>,
+
+    files: HashMap<Url, SourceFile>,
+}
+
+#[salsa::db]
+impl salsa::Database for DbImpl {
+    fn salsa_event(&self, _event: &dyn Fn() -> salsa::Event) {
+        // Nothing.
+    }
+}
+
+#[salsa::db]
+impl Db for DbImpl {
+    fn file(&self, uri: &Url) -> Option<SourceFile> {
+        self.files.get(uri).copied()
+    }
+}
+
+#[salsa::input]
+struct SourceFile {
+    #[return_ref]
+    text: String,
+}
+
+fn parsed(db: &dyn Db, uri: &Url) -> Option<Document> {
+    let file_ = db.file(uri)?;
 
     let document = DocumentBuilder {
-        text: text.to_string(),
+        text: file_.text(db).clone(), // FIXME(bbannier): can we use a ref here?
         parsed_builder: |text: &String| ast::ParsedDocument::from(text.as_str()),
     }
     .build();
 
-    Arc::new(document)
+    Some(document)
 }
-
-#[allow(clippy::needless_pass_by_value)]
-fn links(db: &dyn Database, uri: Arc<Url>) -> Arc<Vec<(Location, Url)>> {
-    let document = db.parsed(uri.clone());
-
-    Arc::new(
-        document
-            .borrow_parsed()
-            .nodes()
-            .iter()
-            .filter_map(|node: &ast::Node| match &node.data {
-                m::Event::Start(m::Tag::Link { dest_url, .. }) => {
-                    let (document, _anchor) = from_reference(dest_url.as_ref(), &uri)?;
-
-                    let uri = uri.clone();
-
-                    match document.scheme() {
-                        "file" => Some((Location::new((*uri).clone(), node.range), (*uri).clone())),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            })
-            .collect(),
-    )
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn diagnostics(db: &dyn Database, documents: Arc<Vec<Url>>) -> Arc<HashMap<Url, Vec<Diagnostic>>> {
-    let documents: Documents = documents
-        .as_ref()
-        .iter()
-        .map(|uri| {
-            let document = db.parsed(Arc::new(uri.clone()));
-            (uri.clone(), document)
-        })
-        .collect();
-
-    let mut diagnostics = HashMap::new();
-
-    for uri in documents.keys() {
-        let links = db.links(Arc::new(uri.clone()));
-
-        diagnostics.insert(
-            uri.clone(),
-            links
-                .as_ref()
-                .iter()
-                .filter_map(|(source, dest)| {
-                    match get_destination(&documents, uri, dest.as_str()) {
-                        None => Some(Diagnostic::new(
-                            source.range,
-                            Some(DiagnosticSeverity::ERROR),
-                            None, // code
-                            None, // source
-                            format!("reference '{dest}' not found"),
-                            None, // related info
-                            None, // tag
-                        )),
-                        Some(_) => None,
-                    }
-                })
-                .collect(),
-        );
-    }
-
-    Arc::new(diagnostics)
-}
-
-#[salsa::database(DatabaseStorage)]
-#[derive(Default)]
-struct DatabaseStruct {
-    storage: salsa::Storage<Self>,
-}
-
-impl salsa::Database for DatabaseStruct {}
