@@ -253,7 +253,7 @@ fn main_loop(server: Server) -> Result<()> {
             }
         };
 
-        debug!("processing event: {:?}", event);
+        debug!("processing event: {event:?}");
 
         match event {
             Event::Api(api) => match api {
@@ -316,7 +316,7 @@ fn on_notification(not: Notification, server: &mut Server) -> Result<()> {
 
 impl Server {
     fn respond(&self, response: Response) -> Result<()> {
-        debug!("sending response: {:?}", response);
+        debug!("sending response: {response:?}");
 
         self.connection
             .sender
@@ -339,7 +339,7 @@ impl Server {
     }
 
     fn add_task(&self, task: Task) -> Result<()> {
-        debug!("adding task: {:?}", task);
+        debug!("adding task: {task:?}");
 
         self.tasks.sender.send(task)?;
         Ok(())
@@ -925,7 +925,7 @@ fn handle_request(req: Request, server: &mut Server) -> Option<Response> {
         Err(req) => req,
     };
 
-    info!("Cannot handle request '{:?}'", req);
+    info!("Cannot handle request '{req:?}'");
 
     None
 }
@@ -1174,7 +1174,7 @@ mod tests {
                         continue;
                     }
                     lsp_server::Message::Request(request) => {
-                        info!("Dropping message '{:?}'", request);
+                        info!("Dropping message '{request:?}'");
                         continue;
                     }
                 }
@@ -1206,7 +1206,7 @@ mod tests {
 
                 match self.send_request::<StatusRequest>(()) {
                     Ok(status) => {
-                        debug!("Server status is {:?}", status);
+                        debug!("Server status is {status:?}");
                         if status.is_idle {
                             break;
                         }
@@ -1218,7 +1218,7 @@ mod tests {
                             break;
                         }
                     }
-                };
+                }
 
                 sleep(time::Duration::from_millis(10));
             }
