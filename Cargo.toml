@@ -29,3 +29,10 @@ insta = "1.41.2"
 
 [dev-dependencies]
 textwrap = "0.16.2"
+
+[lints.clippy]
+all = { level = "deny", priority = -2 }
+pedantic = { level = "deny", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
