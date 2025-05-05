@@ -950,9 +950,9 @@ checksum = "e86697c916019a8588c99b5fac3cead74ec0b4b819707a682fd4d23fa0ce1ba1"
 
 [[package]]
 name = "salsa"
-version = "0.20.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1be22155f8d9732518b2db2bf379fe6f0b2375e76b08b7c8fe6c1b887d548c24"
+checksum = "6f80d5cf3c3fcab2cef898012f242a670477a1baa609267376af9cb4409026c5"
 dependencies = [
  "boxcar",
  "crossbeam-queue",
@@ -973,15 +973,15 @@ dependencies = [
 
 [[package]]
 name = "salsa-macro-rules"
-version = "0.20.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f55a7ef0a84e336f7c5f0332d81727f5629fe042d2aa556c75307afebc9f78a5"
+checksum = "05303d72606fbf2b9c9523cda2039bb8ecb00304027a3cd7e52b02a65c7d9185"
 
 [[package]]
 name = "salsa-macros"
-version = "0.20.0"
+version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d0e88a9c0c0d231a63f83dcd1a2c5e5d11044fac4b65bc9ad3b68ab48b0a0ab"
+checksum = "eb2f0e2a30c65cb3cd63440c491dde68d9af7e1be2b77832ac7057141107db50"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
