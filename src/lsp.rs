@@ -1851,12 +1851,7 @@ struct DbImpl {
     files: HashMap<Url, SourceFile>,
 }
 
-#[salsa::db]
-impl salsa::Database for DbImpl {
-    fn salsa_event(&self, _event: &dyn Fn() -> salsa::Event) {
-        // Nothing.
-    }
-}
+impl salsa::Database for DbImpl {}
 
 #[salsa::db]
 impl Db for DbImpl {
