@@ -6,22 +6,15 @@ on:
 name: Lints
 
 jobs:
-  clippy:
-    name: Clippy
+  lints:
+    name: pre-commit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - name: Setup toolchain
+        uses: moonrepo/setup-rust@v1
         with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt, clippy
-      - uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+          channel: stable
+          cache-target: release
+      - uses: actions/setup-python@v5
+      - uses: pre-commit/action@v3.0.1
