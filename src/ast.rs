@@ -147,7 +147,7 @@ impl PartialEq for ParsedDocument<'_> {
 
 impl<'a> ParsedDocument<'a> {
     /// Get all nodes overlapping `position`.
-    pub fn at(&self, position: Position) -> Vec<&Node> {
+    pub fn at(&self, position: Position) -> Vec<&Node<'_>> {
         let Some(start) = to_offset(position, &self.linebreaks) else {
             return vec![];
         };
