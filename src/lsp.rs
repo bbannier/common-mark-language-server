@@ -1,19 +1,19 @@
 use {
     crate::ast,
-    anyhow::{anyhow, Result},
-    crossbeam_channel::{select, Receiver, RecvError, Sender},
+    anyhow::{Result, anyhow},
+    crossbeam_channel::{Receiver, RecvError, Sender, select},
     log::{debug, info},
     lsp_server::{Connection, Message, Notification, Request, RequestId, Response},
     lsp_types::{
-        notification, request, CompletionItem, CompletionOptions, CompletionParams, Diagnostic,
-        DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-        DidOpenTextDocumentParams, DocumentSymbolParams, DocumentSymbolResponse, FoldingRange,
-        FoldingRangeKind, FoldingRangeParams, FoldingRangeProviderCapability, GotoDefinitionParams,
+        CompletionItem, CompletionOptions, CompletionParams, Diagnostic, DiagnosticSeverity,
+        DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+        DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeKind,
+        FoldingRangeParams, FoldingRangeProviderCapability, GotoDefinitionParams,
         GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
         InitializeParams, Location, MarkedString, OneOf, Position, PublishDiagnosticsParams, Range,
         ReferenceParams, RenameParams, ServerCapabilities, SymbolInformation, SymbolKind,
         TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, WorkspaceEdit,
-        WorkspaceSymbolParams,
+        WorkspaceSymbolParams, notification, request,
     },
     ouroboros::self_referencing,
     pulldown_cmark::{self as m},
@@ -1676,20 +1676,22 @@ mod tests {
         });
 
         // An empty query returns all symbols.
-        assert_debug_snapshot!(server
-            .send_request::<request::WorkspaceSymbolRequest>(WorkspaceSymbolParams {
-                query: String::new(),
-                work_done_progress_params: WorkDoneProgressParams::default(),
-                partial_result_params: PartialResultParams::default(),
-            })
-            .unwrap()
-            .map(|symbols| {
-                let WorkspaceSymbolResponse::Flat(mut symbols) = symbols else {
-                    unreachable!()
-                };
-                symbols.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-                symbols
-            }),);
+        assert_debug_snapshot!(
+            server
+                .send_request::<request::WorkspaceSymbolRequest>(WorkspaceSymbolParams {
+                    query: String::new(),
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                    partial_result_params: PartialResultParams::default(),
+                })
+                .unwrap()
+                .map(|symbols| {
+                    let WorkspaceSymbolResponse::Flat(mut symbols) = symbols else {
+                        unreachable!()
+                    };
+                    symbols.sort_unstable_by(|left, right| left.name.cmp(&right.name));
+                    symbols
+                }),
+        );
 
         // With query matching symbols are returned.
         assert_debug_snapshot!(server.send_request::<request::WorkspaceSymbolRequest>(
@@ -1743,19 +1745,21 @@ mod tests {
             })
         };
 
-        assert_debug_snapshot!(server
-            .send_request::<request::Rename>(RenameParams {
-                text_document_position: TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(file1.clone()),
-                    Position::new(1, 3),
-                ),
-                new_name: "foo bar".into(),
-                work_done_progress_params: WorkDoneProgressParams {
-                    work_done_token: None,
-                },
-            })
-            .unwrap()
-            .map(sorted_edits));
+        assert_debug_snapshot!(
+            server
+                .send_request::<request::Rename>(RenameParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file1.clone()),
+                        Position::new(1, 3),
+                    ),
+                    new_name: "foo bar".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None,
+                    },
+                })
+                .unwrap()
+                .map(sorted_edits)
+        );
 
         let file3 = Url::from_file_path("/file3.md").unwrap();
         server.send_notification::<notification::DidOpenTextDocument>(DidOpenTextDocumentParams {
@@ -1773,47 +1777,53 @@ mod tests {
             ),
         });
 
-        assert_debug_snapshot!(server
-            .send_request::<request::Rename>(RenameParams {
-                text_document_position: TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(file3.clone()),
-                    Position::new(1, 2)
-                ),
-                new_name: "H1".into(),
-                work_done_progress_params: WorkDoneProgressParams {
-                    work_done_token: None
-                },
-            })
-            .unwrap()
-            .map(sorted_edits));
+        assert_debug_snapshot!(
+            server
+                .send_request::<request::Rename>(RenameParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file3.clone()),
+                        Position::new(1, 2)
+                    ),
+                    new_name: "H1".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                })
+                .unwrap()
+                .map(sorted_edits)
+        );
 
-        assert_debug_snapshot!(server
-            .send_request::<request::Rename>(RenameParams {
-                text_document_position: TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(file3.clone()),
-                    Position::new(2, 3)
-                ),
-                new_name: "H2".into(),
-                work_done_progress_params: WorkDoneProgressParams {
-                    work_done_token: None
-                },
-            })
-            .unwrap()
-            .map(sorted_edits));
+        assert_debug_snapshot!(
+            server
+                .send_request::<request::Rename>(RenameParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file3.clone()),
+                        Position::new(2, 3)
+                    ),
+                    new_name: "H2".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                })
+                .unwrap()
+                .map(sorted_edits)
+        );
 
-        assert_debug_snapshot!(server
-            .send_request::<request::Rename>(RenameParams {
-                text_document_position: TextDocumentPositionParams::new(
-                    TextDocumentIdentifier::new(file3.clone()),
-                    Position::new(3, 4)
-                ),
-                new_name: "H3".into(),
-                work_done_progress_params: WorkDoneProgressParams {
-                    work_done_token: None
-                },
-            })
-            .unwrap()
-            .map(sorted_edits));
+        assert_debug_snapshot!(
+            server
+                .send_request::<request::Rename>(RenameParams {
+                    text_document_position: TextDocumentPositionParams::new(
+                        TextDocumentIdentifier::new(file3.clone()),
+                        Position::new(3, 4)
+                    ),
+                    new_name: "H3".into(),
+                    work_done_progress_params: WorkDoneProgressParams {
+                        work_done_token: None
+                    },
+                })
+                .unwrap()
+                .map(sorted_edits)
+        );
     }
 
     #[test]
