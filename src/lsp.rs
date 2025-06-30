@@ -1872,7 +1872,7 @@ impl Db for DbImpl {
 
 #[salsa::input]
 struct SourceFile {
-    #[return_ref]
+    #[returns(clone)]
     text: String,
 }
 
