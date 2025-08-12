@@ -152,10 +152,10 @@ fn get_destination(documents: &Documents, source: &Url, dest: &str) -> Option<Lo
         documents.get(&uri).and_then(|document| {
             document.borrow_parsed().nodes().iter().find_map(|node| {
                 if let Some(anchor) = &anchor {
-                    if let Some(node_anchor) = &node.anchor {
-                        if node_anchor == anchor {
-                            return Some(Location::new(uri.clone(), node.range));
-                        }
+                    if let Some(node_anchor) = &node.anchor
+                        && node_anchor == anchor
+                    {
+                        return Some(Location::new(uri.clone(), node.range));
                     }
                 } else {
                     return Some(Location::new(
@@ -793,14 +793,14 @@ impl Server {
     }
 
     fn update_document(&mut self, uri: Url, text: String, _version: Option<i32>) {
-        if let Some(document) = self.documents.get_mut(&uri) {
-            if document.borrow_text() == &text {
-                debug!(
-                    "not update {} as the new version is identical to the stored one",
-                    &uri
-                );
-                return;
-            }
+        if let Some(document) = self.documents.get_mut(&uri)
+            && document.borrow_text() == &text
+        {
+            debug!(
+                "not update {} as the new version is identical to the stored one",
+                &uri
+            );
+            return;
         }
 
         info!("updating {}", &uri);
