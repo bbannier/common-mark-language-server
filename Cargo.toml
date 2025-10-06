@@ -22,7 +22,7 @@ crossbeam-channel = "0.5.15"
 static_assertions = "1.1.0"
 regex = "1.11.3"
 anyhow = "1.0.100"
-salsa = "0.23.0"
+salsa = "0.24.0"
 ouroboros = "0.18.5"
 clap = { version = "4.5.48", features = ["derive"] }
 insta = "1.43.2"
