@@ -24,7 +24,7 @@ regex = "1.12.2"
 anyhow = "1.0.100"
 salsa = "0.24.0"
 ouroboros = "0.18.5"
-clap = { version = "4.5.49", features = ["derive"] }
+clap = { version = "4.5.50", features = ["derive"] }
 insta = "1.43.2"
 
 [dev-dependencies]
