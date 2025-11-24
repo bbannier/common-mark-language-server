@@ -25,7 +25,7 @@ anyhow = "1.0.100"
 salsa = "0.24.0"
 ouroboros = "0.18.5"
 clap = { version = "4.5.52", features = ["derive"] }
-insta = "1.43.2"
+insta = "1.44.1"
 
 [dev-dependencies]
 textwrap = "0.16.2"
