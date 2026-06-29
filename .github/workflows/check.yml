@@ -32,5 +32,5 @@ jobs:
         channel: stable
         cache-target: release
         components: clippy,rustfmt
-    - uses: actions/setup-python@v6
+    - uses: actions/setup-python@v6.2.0
     - uses: pre-commit/action@v3.0.1
