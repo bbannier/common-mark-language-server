@@ -360,7 +360,7 @@ impl Server {
         let params = params.text_document_position_params;
         let uri = params.text_document.uri;
         let Some(document) = self.documents.get(&uri) else {
-            info!("did not find file '{}' in database", &uri);
+            info!("did not find file '{uri}' in database");
             return Response::new_ok(id, Option::<HoverContents>::None);
         };
 
@@ -653,7 +653,7 @@ impl Server {
         let document = if let Some(document) = self.documents.get(&source_uri) {
             document.borrow_parsed()
         } else {
-            info!("did not find file '{}' in database", &source_uri);
+            info!("did not find file '{source_uri}' in database");
             return Response::new_ok(id, Option::<WorkspaceEdit>::None);
         };
 
@@ -796,14 +796,11 @@ impl Server {
         if let Some(document) = self.documents.get_mut(&uri)
             && document.borrow_text() == &text
         {
-            debug!(
-                "not update {} as the new version is identical to the stored one",
-                &uri
-            );
+            debug!("not update {uri} as the new version is identical to the stored one");
             return;
         }
 
-        info!("updating {}", &uri);
+        info!("updating {uri}");
 
         if let Some(file) = self.db.file(&uri) {
             file.set_text(&mut self.db).to(text);
@@ -1158,14 +1155,10 @@ mod tests {
                 )))?;
 
             loop {
-                let response = match self
+                let response = self
                     .client
                     .receiver
-                    .recv_timeout(time::Duration::from_millis(10))
-                {
-                    Ok(response) => response,
-                    Err(err) => return Err(err.into()),
-                };
+                    .recv_timeout(time::Duration::from_millis(10))?;
 
                 let response = match response {
                     lsp_server::Message::Response(response) => response,
