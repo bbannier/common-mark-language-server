@@ -1161,18 +1161,16 @@ mod tests {
                     .recv_timeout(time::Duration::from_millis(10))?;
 
                 let response = match response {
-                    lsp_server::Message::Response(response) => response,
+                    lsp_server::Message::Response(Response {
+                        response_kind: lsp_server::ResponseKind::Ok { result },
+                        ..
+                    }) => result,
                     lsp_server::Message::Notification(not) => {
                         self.notifications.0.send(not).unwrap();
                         continue;
                     }
-                    lsp_server::Message::Request(request) => {
-                        info!("Dropping message '{request:?}'");
-                        continue;
-                    }
-                }
-                .result
-                .unwrap();
+                    r => panic!("unexpected response {r:?}"),
+                };
 
                 return Ok(serde_json::from_value(response).unwrap());
             }
