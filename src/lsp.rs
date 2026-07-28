@@ -1162,7 +1162,7 @@ mod tests {
 
                 let response = match response {
                     lsp_server::Message::Response(Response {
-                        response_kind: lsp_server::ResponseKind::Ok { result },
+                        response_result: Ok(result),
                         ..
                     }) => result,
                     lsp_server::Message::Notification(not) => {
