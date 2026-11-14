@@ -17,7 +17,6 @@ serde = "1.0.229"
 pulldown-cmark = "0.11.3"
 intervaltree = "0.2.7"
 url = "2.5.8"
-jod-thread = "1.0.0"
 crossbeam-channel = "0.5.16"
 static_assertions = "1.1.0"
 regex = "1.13.1"
@@ -25,9 +24,10 @@ anyhow = "1.0.104"
 salsa = "0.28.1"
 ouroboros = "0.18.5"
 clap = { version = "4.6.4", features = ["derive"] }
-insta = "1.48.0"
 
 [dev-dependencies]
+jod-thread = "1.0.0"
+insta = "1.48.0"
 textwrap = "0.16.2"
 
 [lints.clippy]
